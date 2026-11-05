@@ -126,6 +126,47 @@ export async function invite(f: FormData) {
   });
   redirect(`/workspace/${e}?tab=discussion&invite=${token}`);
 }
+export async function revokeInvitation(f: FormData) {
+  const e = id(f);
+  await command("revoke_invitation", { i: z.uuid().parse(f.get("invitation")) });
+  redirect(`/workspace/${e}?tab=discussion`);
+}
+export async function openConcern(f: FormData) {
+  const e = id(f);
+  await command("open_concern", {
+    e,
+    t: z.string().trim().min(5).max(160).parse(f.get("title")),
+    b: z.string().trim().min(10).max(5000).parse(f.get("description")),
+    outcome: z.string().trim().min(3).max(3000).parse(f.get("desiredOutcome")),
+    k: z.uuid().parse(f.get("operationKey")),
+  });
+  revalidatePath(`/workspace/${e}`);
+}
+export async function addConcernUpdate(f: FormData) {
+  const e = id(f);
+  await command("add_concern_update", {
+    c: z.uuid().parse(f.get("case")),
+    b: z.string().trim().min(1).max(5000).parse(f.get("body")),
+    k: z.uuid().parse(f.get("operationKey")),
+  });
+  revalidatePath(`/workspace/${e}`);
+}
+export async function acknowledgeConcern(f: FormData) {
+  const e = id(f);
+  await command("acknowledge_concern", { c: z.uuid().parse(f.get("case")) });
+  revalidatePath(`/workspace/${e}`);
+}
+export async function createPaymentRequest(f: FormData) {
+  const e = id(f);
+  const target = z.string().parse(f.get("target"));
+  await command("create_payment_request", {
+    e,
+    expected: z.uuid().parse(f.get("version")),
+    t: target === "balance" ? null : z.uuid().parse(target),
+    k: z.uuid().parse(f.get("operationKey")),
+  });
+  revalidatePath(`/workspace/${e}`);
+}
 export async function acceptInvite(f: FormData) {
   const e = await command("accept_invitation", {
     t: z
@@ -520,6 +561,11 @@ export async function workspaceFormAction(
     scope: submitScope,
     approve: approveScope,
     invite,
+    "revoke-invite": revokeInvitation,
+    "concern-open": openConcern,
+    "concern-update": addConcernUpdate,
+    "concern-acknowledge": acknowledgeConcern,
+    "payment-request": createPaymentRequest,
     accept: acceptInvite,
     upload: uploadFile,
     download: downloadFile,

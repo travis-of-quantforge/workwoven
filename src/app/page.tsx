@@ -10,6 +10,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { configured, database } from "@/lib/supabase/server";
+import { isWorkspaceAdmin } from "@/lib/admin-access";
 import { logout } from "./actions";
 import { Button } from "@/components/ui/button";
 export default async function Home({
@@ -62,6 +63,7 @@ export default async function Home({
             <Link href="/calendar" className="underline text-sm">
               Your calendar
             </Link>
+            {isWorkspaceAdmin(user) && <Link href="/admin" className="underline text-sm">Admin</Link>}
             <form action={logout}>
               <Button variant="outline">Sign out</Button>
             </form>
@@ -175,8 +177,9 @@ export default async function Home({
             </div>
             <p className="muted text-xs">
               Your first verified creation includes $5 of shared AI credits.
-              Later creations need a verified $5 purchase before activation.
-              Private AI is separately funded.
+              For this hackathon, later creations stay private until an admin
+              allocates $5 of shared demo credits. Private AI needs its own
+              allocation.
             </p>
             {user ? (
               <Button>Create engagement</Button>

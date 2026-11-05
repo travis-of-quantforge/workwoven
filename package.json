@@ -14,8 +14,11 @@
     "db:check": "node --env-file=.env.local scripts/migrate.mjs --check",
     "db:migrate": "node --env-file=.env.local scripts/migrate.mjs --apply",
     "test:integration": "node --env-file=.env.local node_modules/@playwright/test/cli.js test --config playwright.integration.config.ts",
+    "test:admin": "node --env-file=.env.local node_modules/@playwright/test/cli.js test --config playwright.admin.config.ts",
+    "test:concerns": "node --env-file=.env.local node_modules/@playwright/test/cli.js test tests/integration/concerns.spec.ts --config playwright.integration.config.ts",
     "test:integration:cleanup": "node --env-file=.env.local scripts/cleanup-integration.mjs",
-    "test:providers": "node --env-file=.env.local node_modules/@playwright/test/cli.js test --config playwright.providers.config.ts"
+    "test:providers": "node --env-file=.env.local node_modules/@playwright/test/cli.js test --config playwright.providers.config.ts",
+    "paypal:check": "node --env-file=.env.local scripts/check-paypal.mjs"
   },
   "dependencies": {
     "@bryntum/calendar-enterprise": "8.0.0",

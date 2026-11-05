@@ -1,7 +1,6 @@
 import { describe,it,expect } from 'vitest';
-import { platformFee,usageCharge,billableFailure,reviewEligible,scopeSchema } from '../src/lib/domain';
+import { usageCharge,billableFailure,reviewEligible,scopeSchema } from '../src/lib/domain';
 describe('currency and usage',()=>{
- it('rounds professional commission half up in cents',()=>{expect(platformFee(12345n)).toBe(123n);expect(platformFee(150n)).toBe(2n);expect(platformFee(49n)).toBe(0n);});
  it('charges 2x without rounding tiny usage to a cent',()=>expect(usageCharge(17n)).toBe(34n));
  it('absorbs internal and unusable failures',()=>{expect(billableFailure('internal',true,1000n)).toBe(0n);expect(billableFailure('provider',false,1000n)).toBe(0n);});
  it('requires retention and attributable usage for partial results',()=>{expect(billableFailure('partial',false,10n)).toBe(0n);expect(billableFailure('partial',true,null)).toBe(0n);expect(billableFailure('partial',true,10n)).toBe(20n);});

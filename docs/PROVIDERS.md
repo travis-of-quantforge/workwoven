@@ -20,16 +20,18 @@ Official references: [GPT-6 Luna](https://developers.openai.com/api/docs/models/
 
 ## PayPal
 
-Sandbox is the intended environment. Populate separate PARTNER and CREDITS settings. Verify whether the provided merchant arrangement can act as partner commission recipient and platform credit seller; do not assume one account suffices. Seller merchant IDs belong in persisted onboarding records, not browser-supplied checkout fields.
+Sandbox is the intended environment. `npm run paypal:check` is an optional OAuth diagnostic for the configured sandbox Partner app; it prints status, never credentials or tokens. The first check on 2026-11-05 returned HTTP 401 `invalid_client` because live credentials were used against sandbox. With the corrected sandbox Partner pair, the diagnostic returned HTTP 200 and a token with Partner Referrals read/write scope. This confirms authentication only. No seller onboarding, order, capture or webhook has been verified. The Partner app is no longer a prerequisite for the current no-commission payment policy. Configure the separate `PAYPAL_CREDITS_*` merchant settings for platform credit sales; seller payment authorization must be verified separately. Seller merchant IDs belong in persisted verified seller records, never browser-supplied checkout fields.
 
-Implementation remains pending: before-payment seller onboarding, eligibility/consent verification, Orders create/capture, platform fee configuration, independent credit checkout, authenticity-verified webhooks, durable reconciliation and explicit authorised refunds. No checkout button is falsely presented as working. The accepted agreement stays useful while these integrations are developed.
+The integer-cent order/capture guard is implemented and unit tested: it prepares a direct-to-seller order for the accepted amount with no platform-fee instruction, and rejects captures with a mismatched order, status, amount, currency, payee or unexpected platform fee. It is not connected to checkout. Implementation remains pending: seller authorization/eligibility verification, persisted Orders create/capture, independent platform credit checkout, authenticity-verified webhooks, durable reconciliation and explicit authorised refunds. A platform credential cannot simply be used to collect a seller's payment. No checkout button is presented as working. The accepted agreement stays useful while these integrations are developed.
+
+The Payments tab now records professional payment **requests** calculated from accepted scope/milestone records. They remain in `requested` or `superseded` state; no provider order, capture or settlement record is created. Real credit purchases are deferred for the hackathon, which uses audited admin-issued promotional credits instead.
 
 Official starting points:
-- https://developer.paypal.com/platforms/get-started
-- https://developer.paypal.com/platforms/checkout/immediate-capture
-- https://developer.paypal.com/platforms/checkout/issue-refund
+- https://developer.paypal.com/platforms/checkout/standard/integrate
+- https://developer.paypal.com/docs/multiparty/seller-onboarding/build-onboarding/
+- https://developer.paypal.com/sdk/orders/v2/definitions/order/
 
-Capture must reconcile currency, amount, payee and reference; browser success is not confirmation. Verify platform fee refunds explicitly. Live partner approval, seller-country eligibility and permissions are unverified.
+Capture must reconcile currency, amount, payee and reference; browser success is not confirmation. The platform takes no share of professional payments. Seller authorization, supported countries and refund permissions remain unverified.
 
 ## Bryntum
 
@@ -45,6 +47,6 @@ Official references: [Bryntum 8 tiers/trials/public npm](https://bryntum.com/tie
 
 ## Remaining setup
 
-- **PayPal:** populate all separate `PAYPAL_PARTNER_*` and `PAYPAL_CREDITS_*` settings, keep `PAYPAL_ENVIRONMENT=sandbox`, and provide eligible sandbox seller/buyer accounts. Confirm partner commission capability and the platform's separate AI-credit merchant configuration. Webhook handlers, onboarding, orders/capture and explicit refund integration still need implementation and provider verification. No public tunnel, webhook registration, live charge or deployment has been created.
+- **PayPal:** `PAYPAL_CREDITS_*` merchant credentials and a sandbox buyer will be needed for the platform's prepaid AI credit checkout. A separately authorized sandbox seller and buyer will be needed for direct professional-payment tests. The existing `SANDBOX_PAYPAL_PARTNER_*` pair supports only the optional OAuth diagnostic; partner merchant ID, BN code and partner-fee entitlement are not required by the current no-commission policy. Obtain webhook IDs only after registering endpoints. Webhook handlers, seller authorization, orders/capture and explicit refund integration remain unimplemented. No public tunnel, webhook registration, live charge or deployment has been created.
 - **OpenAI:** key/model are present and the approved synthetic provider test passed. Local `AI_ENABLED=true` is recorded in PROGRESS.md; individual requests still require explicit invocation/budget confirmation. Private agents need separately purchased credits; no free private allowance is added.
 - **Bryntum:** runtime key is present and evaluation rendering is verified. Track the vendor's trial period and obtain the appropriate production licence before deployment.

@@ -92,10 +92,11 @@ export function CreditView({
           </p>
         )}
         <div className="border-t border-slate-200 pt-5 mt-6">
-          <h3>Top up this balance</h3>
+          <h3>Credit allocation</h3>
           <p className="notice text-sm my-4">
-            PayPal credit checkout is not configured yet. No purchase is created
-            or credited by these controls.
+            During the hackathon, an authorised admin can allocate promotional
+            demo credits. PayPal credit checkout is not implemented; these
+            disabled purchase amounts do not create a charge or credits.
           </p>
           <div className="flex flex-wrap gap-3">
             {topupAmounts.map((c) => (
@@ -106,7 +107,7 @@ export function CreditView({
           </div>
           <p className="muted text-xs mt-4">
             The signup grant funds only the shared agent. Private use needs a
-            separate purchase. Purchased credits do not expire; promotional
+            separate admin allocation during the hackathon. Promotional
             credits are non-transferable and have no cash value.
           </p>
         </div>

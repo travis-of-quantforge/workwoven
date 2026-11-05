@@ -13,6 +13,12 @@ A Next.js / Supabase engagement workspace. This is a set of working vertical sli
 
 Without Supabase configuration, the home and sign-in pages show an honest setup state. They do not fabricate accounts or projects. Provider configuration is described in docs/PROVIDERS.md. PayPal checkout remains unfinished.
 
+## Hackathon admin credits
+
+Set `ADMIN_EMAILS` in `.env.local` to the verified email address of each authorised admin (comma-separated). Restart the app, sign in with that account, and open `/admin` → **Users**. Each engagement shows its shared balance and that user's private balance. Enter an amount in USD credit value, choose Add or Remove, and provide a reason. Adjustments are promotional, append-only in the credit ledger, and do not create a purchase or payment. Removing credits can only consume available promotional units; reserved or purchased units are protected. Adding at least $5 to a pending shared balance activates that hackathon engagement. The admin page and action both enforce the server-side allowlist; never expose `SUPABASE_SECRET_KEY` to the browser.
+
+The balance is value for metered AI use, not a fixed token count. Real credit checkout remains future work.
+
 ## Local repeatable demo
 
 Use **local Supabase only**. Set `SEED_PASSWORD` (at least 12 characters) and `SUPABASE_SECRET_KEY`, then run:
@@ -47,9 +53,11 @@ Run only against a dedicated development Supabase project after migrations:
 
 ```sh
 npm run test:integration
+npm run test:admin
+npm run test:concerns
 ```
 
-This separate suite uses `.env.local` and port 3200 with `.next-integration`. It creates three disposable labelled fixture accounts (client, professional, outsider), verifies generated signup tokens without sending email, signs in through the UI, and tests grants, invitations, privacy, actual Realtime messages, sharing, uploads/downloads, threads/mentions, extracted-text privacy, context-switch draft clearing, credit views, disabled-provider handling dual-approved scope/revisions, milestone scheduling, delivery acceptance, meeting/ICS, profiles and double-blind demo feedback. It does not execute AI or payments. Real email delivery and the emailed PKCE callback remain untested.
+The main suite uses `.env.local` and port 3200 with `.next-integration`. It creates three disposable labelled fixture accounts (client, professional, outsider), verifies generated signup tokens without sending email, signs in through the UI, and tests grants, invitations, privacy, actual Realtime messages, sharing, uploads/downloads, threads/mentions, extracted-text privacy, context-switch draft clearing, credit views, disabled-provider handling dual-approved scope/revisions, milestone scheduling, delivery acceptance, meeting/ICS, profiles and double-blind demo feedback. `test:admin` uses separate disposable accounts and a temporary test-only admin allowlist to verify the Users page, access restriction, demo grant and project activation. `test:concerns` checks revocation, two-party concern resolution and an accepted payment request. These tests execute no AI or provider payments. Real email delivery and the emailed PKCE callback remain untested.
 
 The teardown removes fixture files, engagement data and accounts, including after a test failure. If the process is interrupted, `npm run test:integration:cleanup` retries cleanup for the non-secret run IDs recorded under gitignored `.integration-runs/`. Cleanup is restricted to matching account metadata and `[E2E]` engagements. Do not run fixture cleanup while another integration run is active.
 

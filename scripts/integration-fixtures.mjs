@@ -53,6 +53,10 @@ export async function cleanupIntegrationRun(run, admin) {
  delete from public.review_windows where engagement_id in(select id from fixture_engagements);
  delete from public.completion_approvals where engagement_id in(select id from fixture_engagements);
  delete from public.portfolio_items where engagement_id in(select id from fixture_engagements);
+ delete from public.concern_acknowledgements where case_id in(select id from public.concern_cases where engagement_id in(select id from fixture_engagements));
+ delete from public.concern_updates where case_id in(select id from public.concern_cases where engagement_id in(select id from fixture_engagements));
+ delete from public.concern_cases where engagement_id in(select id from fixture_engagements);
+ delete from public.payment_requests where engagement_id in(select id from fixture_engagements);
  delete from public.badge_awards where engagement_id in(select id from fixture_engagements);
  delete from public.meeting_notes where version_id in(select v.id from public.meeting_versions v join public.meetings m on m.id=v.meeting_id where m.engagement_id in(select id from fixture_engagements));
  delete from public.meeting_responses where version_id in(select v.id from public.meeting_versions v join public.meetings m on m.id=v.meeting_id where m.engagement_id in(select id from fixture_engagements));
@@ -73,6 +77,7 @@ export async function cleanupIntegrationRun(run, admin) {
  delete from public.messages where engagement_id in(select id from fixture_engagements);
  delete from public.invitations where engagement_id in(select id from fixture_engagements);
  delete from public.starter_grants where user_id in(select id from fixture_users);
+ delete from public.admin_credit_adjustments where account_id in(select id from public.agent_accounts where engagement_id in(select id from fixture_engagements));
  delete from public.credit_ledger where account_id in(select id from public.agent_accounts where engagement_id in(select id from fixture_engagements));
  delete from public.usage_corrections where operation_id in(select id from public.usage_operations where account_id in(select id from public.agent_accounts where engagement_id in(select id from fixture_engagements)));
  delete from public.usage_metering where operation_id in(select id from public.usage_operations where account_id in(select id from public.agent_accounts where engagement_id in(select id from fixture_engagements)));

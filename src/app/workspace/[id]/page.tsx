@@ -11,6 +11,8 @@ import { agentResultSchema } from "@/lib/ai/contracts";
 import { ActionForm } from "@/components/action-form";
 import { ThreadedMessages } from "@/components/threaded-messages";
 import { Notifications } from "@/components/notifications";
+import { ConcernView } from "@/components/concern-view";
+import { PaymentView } from "@/components/payment-view";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import {
@@ -32,6 +34,7 @@ const tabs = [
   "milestones",
   "files",
   "calendar",
+  "concerns",
   "payments",
   "credits",
   "reputation",
@@ -77,6 +80,17 @@ export default async function Workspace({
   const scopes = results[3].data || [];
   const latest = scopes[0];
   const tab = tabs.includes(query.tab || "") ? query.tab! : "discussion";
+  const { data: pendingInvitations } =
+    tab === "discussion" && members.length < 2
+      ? await db
+          .from("invitations")
+          .select("id,email,role,expires_at")
+          .eq("engagement_id", id)
+          .is("accepted_at", null)
+          .is("revoked_at", null)
+          .order("expires_at", { ascending: false })
+          .limit(5)
+      : { data: [] };
   const visibility = query.context === "private" ? role : "shared";
   const agent = await agentView(
     db,
@@ -299,9 +313,9 @@ export default async function Workspace({
           <Notifications items={notices || []} />
           {project.funding === "pending" && (
             <p className="notice mb-6">
-              A verified $5 shared-credit purchase is required to activate this
-              engagement. PayPal credit checkout is not implemented yet. Your
-              private setup draft is saved; no credits have been invented.
+              This engagement is a private setup draft until an admin allocates
+              at least $5 of shared demo AI credits. PayPal credit checkout is
+              not implemented; no purchase has been recorded.
             </p>
           )}
           {(tab === "discussion" || tab === "files" || tab === "credits") && (
@@ -498,6 +512,21 @@ export default async function Workspace({
                             {query.invite}
                           </a>
                         </p>
+                      )}
+                      {!!pendingInvitations?.length && (
+                        <div className="mt-5 border-t border-slate-200 pt-4">
+                          <h4 className="font-medium">Pending invitations</h4>
+                          {pendingInvitations.map((invitation) => (
+                            <div key={invitation.id} className="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm">
+                              <p>{invitation.email} · {invitation.role} · expires {new Date(invitation.expires_at).toLocaleString("en-GB", { timeZone: "UTC" })} UTC</p>
+                              <ActionForm actionName="revoke-invite">
+                                <input type="hidden" name="id" value={id} />
+                                <input type="hidden" name="invitation" value={invitation.id} />
+                                <Button variant="outline">Revoke</Button>
+                              </ActionForm>
+                            </div>
+                          ))}
+                        </div>
                       )}
                     </div>
                   )}
@@ -715,6 +744,9 @@ export default async function Workspace({
           {tab === "calendar" && (
             <CalendarView db={db} userId={user.id} e={id} />
           )}
+          {tab === "concerns" && (
+            <ConcernView db={db} engagementId={id} role={role} status={project.status} members={members} />
+          )}
           {tab === "reputation" && (
             <ReputationView
               db={db}
@@ -797,16 +829,8 @@ export default async function Workspace({
             </div>
           )}
           {tab === "payments" && (
-            <section className="panel">
-              <p className="eyebrow mb-3">Payment setup required</p>
-              <h2>Professional payments</h2>
-              <p className="muted mt-4">
-                PayPal seller onboarding and verified sandbox checkout are not
-                available yet. The client pays the agreed amount; the
-                professional bears a 1% platform fee plus separate PayPal
-                processing fees. No payment or refund is simulated.
-              </p>
-            </section>
+            <PaymentView db={db} engagementId={id} acceptedVersion={project.accepted_version_id}
+              role={role} professionalName={identities.data?.find((party: {role: string}) => party.role === "professional")?.display_name || ""} />
           )}
         </div>
       </main>

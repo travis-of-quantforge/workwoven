@@ -20,10 +20,6 @@ export function usd(cents: number) {
     currency: "USD",
   }).format(cents / 100);
 }
-export function platformFee(cents: bigint) {
-  if (cents < 0n) throw new Error("Invalid amount");
-  return (cents + 50n) / 100n;
-}
 export function usageCharge(providerNano: bigint) {
   if (providerNano < 0n) throw new Error("Invalid cost");
   return providerNano * 2n;

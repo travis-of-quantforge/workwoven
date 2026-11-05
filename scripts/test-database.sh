@@ -23,5 +23,8 @@ psql -v ON_ERROR_STOP=1 -f tests/credit-source-concurrency.sql >/dev/null
 psql -v ON_ERROR_STOP=1 -f tests/milestones.sql >/dev/null
 psql -v ON_ERROR_STOP=1 -f tests/calendar.sql >/dev/null
 psql -v ON_ERROR_STOP=1 -f tests/reputation.sql >/dev/null
+psql -v ON_ERROR_STOP=1 -f tests/admin-credits.sql >/dev/null
+psql -v ON_ERROR_STOP=1 -f tests/concerns-invitations.sql >/dev/null
+psql -v ON_ERROR_STOP=1 -f tests/payment-requests.sql >/dev/null
 python3 tests/concurrency.py
 printf 'Database permissions, approval, credit and concurrency assertions passed.\n'
