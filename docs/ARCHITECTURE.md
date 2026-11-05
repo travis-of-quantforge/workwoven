@@ -1,0 +1,59 @@
+# Architecture, permissions and policies
+
+One TypeScript Next.js app handles SSR, server actions and Supabase access. PostgreSQL functions own atomic grant/approval/invitation/accounting transitions. No Python application service, marketplace, escrow or orchestration framework is introduced. Python is used only for a standard-library test harness.
+
+| Resource | Client | Professional | Project agent |
+| --- | --- | --- | --- |
+| Shared discussion/files/scope | Read | Read | Read |
+| Client private content/balance/usage | Read | Denied | Denied |
+| Professional private content/balance/usage | Denied | Read | Denied |
+| Formal approval | Own party only | Own party only | Denied |
+| Payments/refunds | Explicit authorised action only | Explicit authorised action only | Denied |
+
+The model has no authority. Database membership controls visibility, not a browser role label. RLS covers records and Storage objects; authenticated Postgres Changes uses table RLS. Hosted Supabase Realtime isolation has been verified with authenticated client/professional fixtures. The browser waits for session/token initialisation and backend subscription readiness before showing a connected status, refreshes when connecting/reconnecting, and ignores callbacks from disposed effects. Shared copies contain only selected reviewed text and a shared audit event. They contain no original private conversation reference. No private activity enters shared audit views.
+
+Messages and submitted scope records are append-only: no client UPDATE/DELETE privileges exist. Edit/redaction tools are not yet implemented. Evidence should cite immutable message IDs and version IDs. Submitted versions use a per-engagement lock; approvals cannot accept a superseded submission. Accepted agreement references survive newer proposals.
+
+Invitations last seven days, bind to a verified email and a database-selected vacant role, use hashed 256-bit tokens, and record acceptance. Creating a replacement revokes earlier pending invitations. Tokens appear in links, so production must use HTTPS, avoid request-URL logging, and never include third-party resources on invitation pages. One user cannot occupy both parties.
+
+Files are private; shared queries do not return private metadata. Only supported content types up to 20 MB are accepted. Files are force-downloaded using 60-second signed URLs. PDF/image signatures and UTF-8 text are validated server-side, and filenames have path/control/bidi characters removed. This is a basic signature check, not full format validation or malware scanning. Failed upload metadata is removed when no object exists. Completed downloads require explicit upload confirmation; an interrupted request may leave a pending record, which is labelled as unconfirmed. Confirmed uploads create one visibility-scoped source message, with no private event sent to the counterparty. Source links and formal submission links are shown in Files. Name/type filters and bounded plain-text previews operate only on the selected authorised context. TXT/CSV decoding stores immutable, SHA-256-versioned text (up to 50,000 characters), with partial/error states. PDF/image analysis, malware scanning, actual transfer progress and scheduled abandoned-upload cleanup remain pending.
+
+## Credit and failure billing policy
+
+Amounts use bigint USD nanodollars. A starter grant is exactly 5,000,000,000 nanodollars. Account rows are locked for reservations; unique operation keys prevent duplicate accounting. Promotional/purchased lots conserve available + reserved + spent + refunded units. Reservations allocate promotional credits first and retain their source through settlement, release and correction. Ledger and metering records are append-only to application callers. Service-only purchase verification activates pending engagements atomically; no browser or model can invoke it. The provider-verification gateway is still pending, so public credit checkout stays disabled.
+
+Customer charge is actual attributable provider cost × 2, using immutable per-event model rates and cached-token quantities without per-operation cent rounding. Internal application errors and recovery retries are platform-funded. Provider failures without usable output incur no customer charge. A usable partial result requires the initiating human's explicit Keep-and-charge decision; discard is free. Unknown attribution and reservation overruns are platform-funded. Known expenses and uncertain provider response IDs remain in private/scoped accounting records for reconciliation. No real AI request has been made; see AI.md.
+
+Partial offers expire after 24 hours. The authenticated maintenance endpoint releases expired work and clears unpublished partial results; it requires a deployment scheduler that is not yet configured. Full usage corrections return units to their original promotional/purchased lots without overwriting historical charges. Service-only aggregate promotional spending supports basic monitoring; no identity verification or device fingerprinting is added.
+
+Versioned credit policy offers $5/$10/$25 top-ups. Purchased credits have no invented expiration. A purchaser can explicitly request a whole-cent refund of unused purchased units; those units are reserved pending review. Only a verified provider refund permits completion; rejected requests release the hold. Sub-cent unused units remain available. Promotional units are non-transferable/non-withdrawable and cannot be refunded. These primitives do not execute PayPal refunds or purchases. No 1% commission applies to AI credits.
+
+Professional payments will be direct-to-seller with a separate professional-borne 1% commission, rounded half-up in USD cents. No custody or escrow. PayPal processing fees are additional and provider-derived.
+
+## Reviews
+
+The agreed policy requires a genuinely accepted agreement before a completed or cancelled engagement can open a review window. An invitation, brief discussion or unaccepted proposal never qualifies. Publish after both submit or 14 days, disclose cancellation context, freeze submissions and support replies/reports. The database, RLS, public projection and UI enforce this policy; see the implementation details below.
+
+## Discussion and notifications
+
+Replies reference a root message in the same engagement and exact visibility. Mentions use membership IDs selected from authorised parties; private contexts cannot mention the counterparty. Notifications contain shared record references, not message excerpts or private activity. RLS restricts notices and read cursors to their owner. Read markers are explicit, monotonic and scoped to shared messages; they are not counterparty-visible read receipts. Notifications cover shared messages/mentions/replies/file uploads, scope approvals/acceptance, invitation acceptance, delivery/review, meeting responses and mutual review publication. Notification counters currently show the loaded recent 50 records; notification pagination and instant approval notification refresh remain pending.
+
+## Milestones, delivery and meetings
+
+A structured milestone plan is part of each immutable scope JSON version, materialised into relational tasks/dependencies. Invalid dates, cyclic/foreign dependencies and allocations exceeding the agreement price are rejected transactionally. Date-only schedules are separate from meeting instants. Editing a schedule submits a complete new scope version; both parties approve that exact version. Progress and delivery records retain their original task/version references after later agreements. Facts do not silently migrate to a new commitment; older schedules/submissions remain visible in history.
+
+Only the accepted task's owner can report progress. Only the professional can formally submit delivery, and only the client can accept/request changes against its criteria. Shared ready attachments from that engagement are allowed; private/cross-project files are rejected. Delivery reviews are immutable; revised work needs a new numbered submission. Reporting 100% progress does not imply acceptance or payment.
+
+Meetings have stable IDs and immutable proposals. A proposer records their own acceptance; the other party accepts/declines the same current version. A new time does not replace a previously confirmed time until both accept it. Responses, changes and notes create shared Discussion events. Cancellation checks the current version and records a reason. UTC instants plus IANA timezone are stored; nonexistent DST times are rejected and repeated times require an explicit earlier/later choice. Internal clash warnings describe only the viewer's known authorised meetings. ICS uses stable UID, increasing sequence, UTC timestamps, safe escaping and UTF-8 folding. Downloads require membership and have no-store headers. No emailed invitation, external free/busy sync, hosting or transcription exists.
+
+## Reputation implementation and limits
+
+Completion requires both parties' confirmations against the current accepted agreement. Either party may explicitly cancel; cancellation does not decide liability, refunds or settlement. Closed engagements cannot be reactivated by approving an old proposal. Only closing an engagement with an accepted agreement opens the 14-day review window. Invitations/discussion/unaccepted proposals do not qualify.
+
+Submitted feedback is frozen. RLS exposes unpublished feedback only to its author; the subject cannot read its body/ratings through APIs. Publication occurs when both submit or the deadline passes, with deadline visibility enforced in SQL even without a scheduled job. Participants can then read both reviews. Anonymous/public access goes through `public_profile`, which deliberately projects opted-in identity fields, written role-specific feedback, completion facts, client-approved portfolio and badge criteria. Base profile/review tables are not anonymously readable. Private engagement identifiers, title, price, files and discussion are excluded. Author identity is linked only when that author's profile is public.
+
+The reviewed party can submit a frozen reply. Verified users can submit policy reports; reports are owner-only. Subjects cannot remove reviews. Trusted platform staff may call service-only `moderate_review` with a recorded decision/reason after reviewing a report; there is no automated moderation decision or staff console. Valid criticism is not grounds for unilateral removal. Text corrections require a documented staff process; no silent self-edit is offered.
+
+A portfolio example is immutable text plus an HTTPS link, proposed by the professional. Public display requires the client's exact-example permission, the professional's publication flag and an opted-in professional profile. The client can revoke permission. File publication is not automatic. Company identity currently has one authorised account representative per party.
+
+Demo-labelled engagements are excluded from public reviews, completion counts, portfolios and badges. The initial badge records a mutual completion only and publishes its criteria. No quality, identity or fraud-free verification is claimed. Two accounts can manufacture activity; accepted agreements, payments and completed tasks alone do not prove work quality. Initial limits are verified accounts, genuine membership and accepted-agreement eligibility, unique mutual reviews, frozen feedback, reports and monitoring; stronger anti-manipulation controls require observed evidence. Archive transitions, a full staff console, repeat-engagement statistics and concerns/mediation records remain later work.

@@ -1,36 +1,54 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Workspace
 
-## Getting Started
+A Next.js / Supabase engagement workspace. This is a set of working vertical slices, **not the completed product brief**. See PROGRESS.md for the exact remaining work.
 
-First, run the development server:
+## Start
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+1. Use Node 22 (`nvm use`), then `npm ci`.
+2. Copy `.env.example` to `.env.local`; populate the Supabase project-root URL (without `/rest/v1`) and publishable key. Never commit credentials. The Supabase secret key stays server-only and is required for attachment extraction, AI execution, maintenance and the local seed.
+3. Apply all SQL migrations in `supabase/migrations`, in filename order, to a dedicated development Supabase project. Recommended: add its session-pooler Postgres connection URI (Supabase Connect → Session pooler, port 5432; the default direct endpoint may require IPv6 unavailable in this environment) as `SUPABASE_DB_URL` in `.env.local`, then run `npm run db:check` followed by `npm run db:migrate`. The runner requires `psql`, uses TLS for remote connections (defaults to certificate verification), records checksums and applies pending migrations atomically. If the certificate is not trusted, download the public Supabase CA from the dashboard’s Database Settings → SSL Configuration and set `PGSSLROOTCERT` to its local path. For this workspace it is configured as `.certs/supabase-ca.crt` in `.env.local`; `.certs/` is gitignored. Keep `verify-full` enabled. It refuses an existing public application schema without migration history so it cannot silently adopt unrelated tables. Alternatively run the files through the SQL Editor; do not mix manual migrations with the runner without reconciling history. Never apply `tests/database-bootstrap.sql` to Supabase; it is only a vanilla-Postgres fixture.
+4. Enable email confirmation in Auth. Set Site URL to `http://localhost:3000` and allow `http://localhost:3000/auth/callback`. Use local Mailpit when developing with local Supabase. No application invitation emails are sent.
+5. Enable Postgres Changes for `messages` (the migration adds the publication). Table RLS controls event delivery. Storage uses the private `engagement-files` bucket created by the migration.
+6. Run `npm run dev`. Sign up and confirm your email. Create a project, generate an email-bound invitation link, then accept from a separate verified account/browser profile.
+
+Without Supabase configuration, the home and sign-in pages show an honest setup state. They do not fabricate accounts or projects. Provider credentials are placeholders; filling them does not enable unfinished integrations.
+
+## Local repeatable demo
+
+Use **local Supabase only**. Set `SEED_PASSWORD` (at least 12 characters) and `SUPABASE_SECRET_KEY`, then run:
+
+```sh
+node --env-file=.env.local scripts/seed-demo.mjs
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+This creates two local verified fixture accounts (`client@example.test`, `professional@example.test`), a labelled reporting-dashboard engagement, shared discussion, a client-private note, CSV/source event, approved milestone plan, prepared delivery and confirmed review meeting. All activity is explicitly demo-labelled and excluded from real public reputation. Rerunning leaves an existing demo unchanged. It does not send email, create payments or publish reviews. Use a fresh local database for a fully repeatable starter-grant demo. Hosted projects are deliberately rejected.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Checks
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```sh
+npm run typecheck
+npm run lint
+npm test
+npm run test:db
+npx playwright install chromium
+npm run test:e2e
+npm run build
+```
 
-## Learn More
+Database tests require local Postgres 18 binaries (`PG_BIN` can override their location). The runner starts an isolated temporary Unix-socket database, tests grants/approvals/privacy/credits/concurrency, and removes it. It does not use your Supabase credentials. Browser checks use an isolated `.next-e2e` directory on port 3100 and explicitly clear provider settings, so they remain deterministic after `.env.local` is populated. They currently cover unconfigured desktop/mobile setup only; the authenticated hosted journey is tested separately as described below.
 
-To learn more about Next.js, take a look at the following resources:
+## Providers
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+See docs/PROVIDERS.md for exact setup requirements, docs/ARCHITECTURE.md for permissions/review/credit policies and docs/AI.md for the tool inventory and failure/recovery rules. No deployment, live payment, seller onboarding, public review or real outreach has been performed.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Hosted authenticated integration test
 
-## Deploy on Vercel
+Run only against a dedicated development Supabase project after migrations:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```sh
+npm run test:integration
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+This separate suite uses `.env.local` and port 3200 with `.next-integration`. It creates three disposable labelled fixture accounts (client, professional, outsider), verifies generated signup tokens without sending email, signs in through the UI, and tests grants, invitations, privacy, actual Realtime messages, sharing, uploads/downloads, threads/mentions, extracted-text privacy, context-switch draft clearing, credit views, disabled-provider handling dual-approved scope/revisions, milestone scheduling, delivery acceptance, meeting/ICS, profiles and double-blind demo feedback. It does not execute AI or payments. Real email delivery and the emailed PKCE callback remain untested.
+
+The teardown removes fixture files, engagement data and accounts, including after a test failure. If the process is interrupted, `npm run test:integration:cleanup` retries cleanup for the non-secret run IDs recorded under gitignored `.integration-runs/`. Cleanup is restricted to matching account metadata and `[E2E]` engagements. Do not run fixture cleanup while another integration run is active.

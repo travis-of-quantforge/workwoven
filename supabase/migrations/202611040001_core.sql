@@ -1,4 +1,5 @@
-create extension if not exists pgcrypto;
+create schema if not exists extensions;
+create extension if not exists pgcrypto with schema extensions;
 create type public.party_role as enum ('client','professional');
 create type public.visibility as enum ('shared','client','professional');
 create table public.profiles (
@@ -182,8 +183,8 @@ revoke execute on all functions in schema public from public, anon;
 grant execute on all functions in schema public to authenticated;
 insert into storage.buckets(id,name,public,file_size_limit,allowed_mime_types)
 values('engagement-files','engagement-files',false,20971520,array['text/plain','text/csv','application/pdf','image/png','image/jpeg']);
-create policy files_read on storage.objects for select to authenticated using(bucket_id='engagement-files' and exists(select 1 from public.attachments a where a.object_path=name and public.can_read(a.engagement_id,a.visibility)));
-create policy files_upload on storage.objects for insert to authenticated with check(bucket_id='engagement-files' and exists(select 1 from public.attachments a where a.object_path=name and a.owner_id=auth.uid() and public.can_read(a.engagement_id,a.visibility)));
+create policy files_read on storage.objects for select to authenticated using(bucket_id='engagement-files' and exists(select 1 from public.attachments a where a.object_path=storage.objects.name and public.can_read(a.engagement_id,a.visibility)));
+create policy files_upload on storage.objects for insert to authenticated with check(bucket_id='engagement-files' and exists(select 1 from public.attachments a where a.object_path=storage.objects.name and a.owner_id=auth.uid() and public.can_read(a.engagement_id,a.visibility)));
 create function public.register_attachment(e uuid,v public.visibility,n text,mime text,bytes bigint) returns text
 language plpgsql security definer set search_path='' as $$
 declare u uuid:=public.require_verified(); p text:=e::text||'/'||gen_random_uuid()::text; begin

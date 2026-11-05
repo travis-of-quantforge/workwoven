@@ -1,26 +1,112 @@
 @import "tailwindcss";
-
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f7f8fa;
+  --foreground: #243136;
 }
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+* {
+  box-sizing: border-box;
 }
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
+  margin: 0;
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+  font-size: 14px;
+}
+button,
+a,
+input,
+textarea,
+select {
+  outline-offset: 4px;
+}
+button {
+  cursor: pointer;
+}
+input,
+textarea,
+select {
+  width: 100%;
+  border: 1px solid #ccd5d6;
+  border-radius: 7px;
+  padding: 10px 12px;
+  background: white;
+  font: inherit;
+}
+textarea {
+  min-height: 110px;
+  resize: vertical;
+}
+label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 7px;
+}
+h1 {
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.8px;
+}
+h2 {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.3px;
+}
+h3 {
+  font-size: 15px;
+  font-weight: 600;
+}
+p {
+  line-height: 1.7;
+}
+a {
+  text-decoration: none;
+}
+.panel {
+  background: white;
+  border: 1px solid #e2e7e8;
+  border-radius: 12px;
+  padding: 24px;
+}
+.muted {
+  color: #65767c;
+}
+.eyebrow {
+  color: #6d7f83;
+  font-size: 11px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+.badge {
+  display: inline-block;
+  border-radius: 20px;
+  padding: 4px 10px;
+  font-size: 11px;
+  background: #e7f2ef;
+  color: #276458;
+}
+.notice {
+  background: #fff6e6;
+  border: 1px solid #ead8b5;
+  border-radius: 8px;
+  padding: 14px;
+  color: #765522;
+}
+.stack {
+  display: grid;
+  gap: 18px;
+}
+small {
+  line-height: 1.6;
+}
+
+.mention-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mention-option input {
+  width: auto;
 }

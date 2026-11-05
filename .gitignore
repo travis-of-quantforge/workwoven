@@ -41,3 +41,13 @@ yarn-error.log*
 next-env.d.ts
 !.env.example
 .npmrc
+/test-results/
+/playwright-report/
+
+/.next-e2e/
+
+/.certs/
+
+/.next-integration/
+
+/.integration-runs/
