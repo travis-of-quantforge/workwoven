@@ -1,3 +1,4 @@
+import { MeetingCalendar, type CalendarEvent } from "./bryntum/views";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { randomUUID } from "node:crypto";
 import Link from "next/link";
@@ -78,9 +79,10 @@ export async function CalendarView({
           Times display in your browser’s timezone. Both parties must accept the
           same proposal.
         </p>
-        <p className="notice text-sm mt-4">
-          Calendar grid unavailable: licensed Bryntum setup is required. Meeting
-          scheduling works in the list below.
+        <p className="muted text-xs mt-4">
+          Bryntum Calendar · evaluation licence. Confirmed and tentative times
+          are separate. Propose changes below; dragging cannot alter a
+          commitment.
         </p>
         {e && (
           <Link className="underline text-sm block mt-4" href="/calendar">
@@ -88,6 +90,36 @@ export async function CalendarView({
           </Link>
         )}
       </section>
+      <MeetingCalendar
+        key={JSON.stringify(visible.map((m) => [m.id, m.sequence]))}
+        events={visible.flatMap((m): CalendarEvent[] => {
+          const history = (versions.data || []).filter(
+              (v) => v.meeting_id === m.id,
+            ),
+            latest = history[0];
+          if (!latest) return [];
+          const confirmed = history.find((v) => v.id === m.accepted_version_id);
+          return [
+            ...(confirmed && confirmed.id !== latest.id ? [confirmed] : []),
+            latest,
+          ].map((v) => ({
+            id: v.id,
+            meetingId: m.id,
+            name: v.title,
+            startDate: v.starts_at,
+            endDate: v.ends_at,
+            status:
+              m.status === "cancelled" ||
+              responses.data?.some(
+                (r) => r.version_id === v.id && r.response === "declined",
+              )
+                ? "cancelled"
+                : v.id === m.accepted_version_id
+                  ? "confirmed"
+                  : "tentative",
+          }));
+        })}
+      />
       {!visible.length && <p className="panel">No meetings scheduled yet.</p>}
       {visible.map((m) => {
         const history = (versions.data || []).filter(

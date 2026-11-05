@@ -745,6 +745,12 @@ test("two authenticated parties: grant, invite, private isolation, threads, file
     await expect(
       cp.getByText("Delivery accepted", { exact: true }),
     ).toBeVisible();
+    await expect(
+      cp.locator('[data-bryntum-view="gantt"] .b-gantt'),
+    ).toBeVisible({ timeout: 60000 });
+    await expect(
+      cp.locator('[data-bryntum-view="gantt"] .b-gantt-task-wrap'),
+    ).toHaveCount(1);
     await cp.screenshot({
       path: "test-results/integration-milestones.png",
       fullPage: true,
@@ -764,7 +770,7 @@ test("two authenticated parties: grant, invite, private isolation, threads, file
       .getByLabel("IANA timezone", { exact: true })
       .fill("Africa/Johannesburg");
     await cp
-      .getByLabel("Agenda", { exact: true })
+      .getByRole("textbox", { name: "Agenda", exact: true })
       .fill("Review accepted totals and plan the reporting handover.");
     await cp
       .getByLabel("Related accepted milestone (optional)", { exact: true })
@@ -821,6 +827,15 @@ test("two authenticated parties: grant, invite, private isolation, threads, file
         "Handover includes the agreed CSV totals checklist. No new scope agreed.",
         { exact: true },
       ),
+    ).toBeVisible();
+    await expect(
+      pp.locator('[data-bryntum-view="calendar"] .b-calendar'),
+    ).toBeVisible({ timeout: 60000 });
+    await expect(
+      pp
+        .locator('[data-bryntum-view="calendar"]')
+        .getByText("Dashboard delivery review", { exact: true })
+        .first(),
     ).toBeVisible();
     await pp.screenshot({
       path: "test-results/integration-calendar-desktop.png",
@@ -1002,11 +1017,9 @@ test("two authenticated parties: grant, invite, private isolation, threads, file
       .getByRole("button", { name: "Submit frozen reply", exact: true })
       .click();
     await expect(
-      cp
-        .locator("p.notice")
-        .filter({
-          hasText: "[E2E] Thank you for explaining the reporting assumptions.",
-        }),
+      cp.locator("p.notice").filter({
+        hasText: "[E2E] Thank you for explaining the reporting assumptions.",
+      }),
     ).toBeVisible();
     await cp.screenshot({
       path: "test-results/integration-reputation.png",

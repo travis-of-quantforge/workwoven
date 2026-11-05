@@ -8,7 +8,11 @@ import {
   evidenceSchema,
   resultBody,
 } from "@/lib/ai/contracts";
-import { reservationBudget, type Price } from "@/lib/ai/pricing";
+import {
+  reservationBudget,
+  validateCacheUsage,
+  type Price,
+} from "@/lib/ai/pricing";
 import { generateAgentResult } from "@/lib/ai/openai";
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -235,6 +239,7 @@ export async function POST(request: Request) {
               )
                 throw new Error("Unverified model or service tier");
               const usage = response.usage;
+              validateCacheUsage(price, usage.input_tokens_details);
               const recorded = await admin.rpc("record_usage", {
                 op_id: started.data,
                 response_id: response.id,

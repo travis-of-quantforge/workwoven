@@ -5,6 +5,7 @@ export type Price = {
   cached_nano_per_token: number;
   output_nano_per_token: number;
   markup: number;
+  cache_mode?: "implicit" | "disabled";
 };
 export const INPUT_BYTE_LIMIT = 64000;
 export const SEARCH_OUTPUT_TOKENS = 512;
@@ -48,4 +49,17 @@ export function formatNano(value: string | number | bigint) {
     .replace(/0+$/, "")
     .padEnd(2, "0");
   return `${sign}$${n / 1000000000n}.${fraction}`;
+}
+
+export function validateCacheUsage(
+  price: Price,
+  details: { cached_tokens?: number; cache_write_tokens?: number },
+) {
+  if (
+    price.cache_mode === "disabled" &&
+    (details.cached_tokens !== 0 || details.cache_write_tokens !== 0)
+  )
+    throw new Error("Unexpected or unconfirmed cache billing");
+  if ((details.cache_write_tokens || 0) !== 0)
+    throw new Error("Cache writes are not enabled by this pricing version");
 }

@@ -1,3 +1,4 @@
+import { GanttView } from "./bryntum/views";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import Link from "next/link";
 import { randomUUID } from "node:crypto";
@@ -83,9 +84,10 @@ export async function MilestoneView({
           delivery acceptance and payment are separate facts. Completing a task
           does not charge anyone.
         </p>
-        <p className="notice text-sm mt-4">
-          Gantt view unavailable: licensed Bryntum setup is required. Saved
-          schedules and deliveries work below.
+        <p className="muted text-xs mt-4">
+          Bryntum Gantt · evaluation licence. The timeline is read-only; use the
+          proposal form to change dates or dependencies, then approve the new
+          agreement version.
         </p>
       </section>
       {!tasks?.length && (
@@ -102,6 +104,32 @@ export async function MilestoneView({
         const heading = `${current ? "Accepted" : proposed ? "Proposed" : "Historical"} schedule · version ${scopeRows.data?.find((s) => s.id === version)?.number}`;
         const content = (
           <div className="stack mt-4">
+            {(current || proposed) && (
+              <GanttView
+                key={version + JSON.stringify(progress.data)}
+                proposed={proposed}
+                tasks={rows.map((t) => ({
+                  id: t.id,
+                  key: t.task_key,
+                  name: t.title,
+                  startDate: t.start_date,
+                  endDate: t.end_date,
+                  owner: t.owner,
+                  percentDone:
+                    progress.data?.find((p) => p.task_id === t.id)?.percent ||
+                    0,
+                }))}
+                dependencies={(deps.data || [])
+                  .filter((d) => d.version_id === version)
+                  .flatMap((d) => {
+                    const from = rows.find(
+                        (t) => t.task_key === d.predecessor_key,
+                      )?.id,
+                      to = rows.find((t) => t.task_key === d.task_key)?.id;
+                    return from && to ? [{ from, to }] : [];
+                  })}
+              />
+            )}
             {rows.map((t) => {
               const predecessors = (deps.data || [])
                 .filter(

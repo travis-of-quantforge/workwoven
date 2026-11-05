@@ -11,7 +11,7 @@ A Next.js / Supabase engagement workspace. This is a set of working vertical sli
 5. Enable Postgres Changes for `messages` (the migration adds the publication). Table RLS controls event delivery. Storage uses the private `engagement-files` bucket created by the migration.
 6. Run `npm run dev`. Sign up and confirm your email. Create a project, generate an email-bound invitation link, then accept from a separate verified account/browser profile.
 
-Without Supabase configuration, the home and sign-in pages show an honest setup state. They do not fabricate accounts or projects. Provider credentials are placeholders; filling them does not enable unfinished integrations.
+Without Supabase configuration, the home and sign-in pages show an honest setup state. They do not fabricate accounts or projects. Provider configuration is described in docs/PROVIDERS.md. PayPal checkout remains unfinished.
 
 ## Local repeatable demo
 
@@ -52,3 +52,7 @@ npm run test:integration
 This separate suite uses `.env.local` and port 3200 with `.next-integration`. It creates three disposable labelled fixture accounts (client, professional, outsider), verifies generated signup tokens without sending email, signs in through the UI, and tests grants, invitations, privacy, actual Realtime messages, sharing, uploads/downloads, threads/mentions, extracted-text privacy, context-switch draft clearing, credit views, disabled-provider handling dual-approved scope/revisions, milestone scheduling, delivery acceptance, meeting/ICS, profiles and double-blind demo feedback. It does not execute AI or payments. Real email delivery and the emailed PKCE callback remain untested.
 
 The teardown removes fixture files, engagement data and accounts, including after a test failure. If the process is interrupted, `npm run test:integration:cleanup` retries cleanup for the non-secret run IDs recorded under gitignored `.integration-runs/`. Cleanup is restricted to matching account metadata and `[E2E]` engagements. Do not run fixture cleanup while another integration run is active.
+
+## Explicit OpenAI provider smoke test
+
+`npm run test:providers` uses the configured API key and makes two real, bounded Responses calls with synthetic fixture content only. It incurs provider cost and is separate from the deterministic checks. The first approved run passed; see docs/PROVIDERS.md for the exact payload scope, metering result and limits.

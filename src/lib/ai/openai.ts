@@ -68,6 +68,9 @@ export async function generateAgentResult(
     model: price.model,
     store: false,
     service_tier: "default",
+    ...(price.cache_mode === "disabled"
+      ? { prompt_cache_options: { mode: "explicit" as const } }
+      : {}),
     reasoning: { effort: "low" },
     instructions,
     input: [{ role: "user", content: question }],
@@ -90,6 +93,9 @@ export async function generateAgentResult(
     model: price.model,
     store: false,
     service_tier: "default",
+    ...(price.cache_mode === "disabled"
+      ? { prompt_cache_options: { mode: "explicit" as const } }
+      : {}),
     reasoning: { effort: "low" },
     instructions,
     input: [

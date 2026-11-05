@@ -110,3 +110,26 @@ small {
 .mention-option input {
   width: auto;
 }
+
+.bryntum-host {
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #e2e7e8;
+  border-radius: 8px;
+}
+.bryntum-host input,
+.bryntum-host select,
+.bryntum-host textarea {
+  width: revert;
+  padding: revert;
+  border: revert;
+  border-radius: revert;
+  background: revert;
+}
+.workspace-proposed-task.b-gantt-task,
+.workspace-proposed-task .b-gantt-task {
+  border: 2px dashed #a86b1b;
+  background: #ffedc9;
+  color: #4f3511;
+}

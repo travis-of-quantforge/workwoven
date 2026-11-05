@@ -14,9 +14,15 @@
     "db:check": "node --env-file=.env.local scripts/migrate.mjs --check",
     "db:migrate": "node --env-file=.env.local scripts/migrate.mjs --apply",
     "test:integration": "node --env-file=.env.local node_modules/@playwright/test/cli.js test --config playwright.integration.config.ts",
-    "test:integration:cleanup": "node --env-file=.env.local scripts/cleanup-integration.mjs"
+    "test:integration:cleanup": "node --env-file=.env.local scripts/cleanup-integration.mjs",
+    "test:providers": "node --env-file=.env.local node_modules/@playwright/test/cli.js test --config playwright.providers.config.ts"
   },
   "dependencies": {
+    "@bryntum/calendar-enterprise": "8.0.0",
+    "@bryntum/calendar-react-enterprise": "8.0.0",
+    "@bryntum/core-enterprise": "8.0.0",
+    "@bryntum/gantt-enterprise": "8.0.0",
+    "@bryntum/gantt-react-enterprise": "8.0.0",
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.119.0",
     "class-variance-authority": "^0.7.1",

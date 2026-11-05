@@ -38,3 +38,26 @@ it("parses human USD input without floating-point rounding", () => {
   expect(() => parseUsd("1e6")).toThrow();
   expect(() => parseUsd("-1")).toThrow();
 });
+
+it("rejects cache write billing and requires confirmed zero cache usage for cache-disabled pricing", async () => {
+  const { validateCacheUsage } = await import("../src/lib/ai/pricing");
+  const base = {
+    id: "fixture",
+    model: "gpt-6-luna",
+    input_nano_per_token: 100,
+    cached_nano_per_token: 10,
+    output_nano_per_token: 500,
+    markup: 2,
+    cache_mode: "disabled" as const,
+  };
+  expect(() =>
+    validateCacheUsage(base, { cached_tokens: 0, cache_write_tokens: 0 }),
+  ).not.toThrow();
+  expect(() => validateCacheUsage(base, { cached_tokens: 0 })).toThrow();
+  expect(() =>
+    validateCacheUsage(base, { cached_tokens: 0, cache_write_tokens: 1 }),
+  ).toThrow();
+  expect(() =>
+    validateCacheUsage(base, { cached_tokens: 1, cache_write_tokens: 0 }),
+  ).toThrow();
+});
