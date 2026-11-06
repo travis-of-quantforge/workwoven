@@ -25,19 +25,24 @@ export async function login(f: FormData) {
   const db = await database();
   const email = z.email().parse(f.get("email"));
   const password = z.string().min(8).max(128).parse(f.get("password"));
+  const signup = f.get("mode") === "signup";
+  const profileType = signup
+    ? z.enum(["client", "professional"]).parse(f.get("profileType"))
+    : null;
   const { error } =
-    f.get("mode") === "signup"
+    signup
       ? await db.auth.signUp({
           email,
           password,
           options: {
             emailRedirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback`,
+            data: { profile_type: profileType },
           },
         })
       : await db.auth.signInWithPassword({ email, password });
   if (error) redirect("/login?notice=" + encodeURIComponent(error.message));
   redirect(
-    f.get("mode") === "signup"
+    signup
       ? "/login?notice=Check+your+email+to+verify+your+account."
       : "/",
   );
@@ -47,10 +52,17 @@ export async function logout() {
   await db.auth.signOut();
   redirect("/login");
 }
+export async function switchRole(f: FormData) {
+  const { db } = await authenticated();
+  const nextRole = z.enum(["client", "professional"]).parse(f.get("role"));
+  const { error } = await db.rpc("set_active_role", { next_role: nextRole });
+  if (error) throw databaseActionError(error.code || "", error.message);
+  revalidatePath("/");
+  redirect("/");
+}
 export async function createEngagement(f: FormData) {
   const e = await command("create_engagement", {
     p_title: z.string().trim().min(1).max(160).parse(f.get("title")),
-    p_role: z.enum(["client", "professional"]).parse(f.get("role")),
   });
   redirect(`/workspace/${e}`);
 }
@@ -168,12 +180,26 @@ export async function createPaymentRequest(f: FormData) {
   revalidatePath(`/workspace/${e}`);
 }
 export async function acceptInvite(f: FormData) {
+  const { db, user } = await authenticated();
   const e = await command("accept_invitation", {
     t: z
       .string()
       .regex(/^[a-f0-9]{64}$/)
       .parse(f.get("token")),
   });
+  const { data: membership, error: membershipError } = await db
+    .from("memberships")
+    .select("role")
+    .eq("engagement_id", e)
+    .eq("user_id", user.id)
+    .single();
+  if (membershipError || !membership)
+    throw new Error("Invitation accepted, but account context could not be updated.");
+  const { error: roleError } = await db.rpc("set_active_role", {
+    next_role: membership.role,
+  });
+  if (roleError) throw databaseActionError(roleError.code || "", roleError.message);
+  revalidatePath("/");
   redirect(`/workspace/${e}`);
 }
 export async function uploadFile(f: FormData) {

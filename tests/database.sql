@@ -6,7 +6,9 @@ insert into auth.users values
 set role authenticated;
 select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',false);
 select public.create_engagement('Reporting dashboard','client') as engagement \gset
+select public.set_active_role('professional');
 select public.create_engagement('Second project','professional') as pending \gset
+select public.set_active_role('client');
 select set_config('test.engagement',:'engagement',false);
 select set_config('test.pending',:'pending',false);
 do $$ begin

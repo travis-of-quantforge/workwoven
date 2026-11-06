@@ -14,6 +14,7 @@ node scripts/migrate.mjs --apply
 node scripts/migrate.mjs --apply
 node scripts/migrate.mjs --check
 psql -v ON_ERROR_STOP=1 -f tests/database.sql >/dev/null
+psql -v ON_ERROR_STOP=1 -f tests/account-context.sql >/dev/null
 psql -v ON_ERROR_STOP=1 -f tests/credits.sql >/dev/null
 psql -v ON_ERROR_STOP=1 -f tests/discussion.sql >/dev/null
 psql -v ON_ERROR_STOP=1 -f tests/uploads.sql >/dev/null

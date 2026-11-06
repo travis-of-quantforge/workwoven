@@ -16,6 +16,7 @@
     "test:integration": "node --env-file=.env.local node_modules/@playwright/test/cli.js test --config playwright.integration.config.ts",
     "test:admin": "node --env-file=.env.local node_modules/@playwright/test/cli.js test --config playwright.admin.config.ts",
     "test:concerns": "node --env-file=.env.local node_modules/@playwright/test/cli.js test tests/integration/concerns.spec.ts --config playwright.integration.config.ts",
+    "test:context": "node --env-file=.env.local node_modules/@playwright/test/cli.js test tests/integration/account-context.spec.ts --config playwright.integration.config.ts",
     "test:integration:cleanup": "node --env-file=.env.local scripts/cleanup-integration.mjs",
     "test:providers": "node --env-file=.env.local node_modules/@playwright/test/cli.js test --config playwright.providers.config.ts",
     "paypal:check": "node --env-file=.env.local scripts/check-paypal.mjs"

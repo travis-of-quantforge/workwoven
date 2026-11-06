@@ -2,7 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { reservationBudget, type Price } from "./pricing";
 export async function agentView(db: SupabaseClient, e: string, v: string) {
-  const [credit, runs] = await Promise.all([
+  const [credit, runs, price] = await Promise.all([
     db.rpc("credit_summary", { e, v }),
     db
       .from("agent_runs")
@@ -11,6 +11,16 @@ export async function agentView(db: SupabaseClient, e: string, v: string) {
       .eq("visibility", v)
       .order("created_at", { ascending: false })
       .limit(8),
+    process.env.OPENAI_MODEL
+      ? db
+          .from("ai_pricing")
+          .select("*")
+          .eq("model", process.env.OPENAI_MODEL)
+          .eq("enabled", true)
+          .order("effective_at", { ascending: false })
+          .limit(1)
+          .single()
+      : null,
   ]);
   let budgetNano: string | null = null;
   let setupReason: string | null =
@@ -19,15 +29,7 @@ export async function agentView(db: SupabaseClient, e: string, v: string) {
     process.env.OPENAI_MODEL
       ? null
       : "AI is not enabled for this workspace. No model request or usage charge will be made.";
-  if (process.env.OPENAI_MODEL) {
-    const price = await db
-      .from("ai_pricing")
-      .select("*")
-      .eq("model", process.env.OPENAI_MODEL)
-      .eq("enabled", true)
-      .order("effective_at", { ascending: false })
-      .limit(1)
-      .single();
+  if (price) {
     if (price.error)
       setupReason =
         "Model pricing is not configured. The assistant remains paused.";

@@ -22,6 +22,7 @@ async function actor(email) {
         email,
         password: process.env.SEED_PASSWORD,
         email_confirm: true,
+        user_metadata: { profile_type: email.startsWith("professional") ? "professional" : "client" },
       }),
     );
   const db = createClient(

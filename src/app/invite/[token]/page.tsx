@@ -12,7 +12,8 @@ export default async function Invite({
       <p className="muted my-5">
         Sign in with the verified email the invitation was sent to. Joining
         gives you access to shared content; the other party’s private material
-        remains private.
+        remains private. Your account menu will switch to your role in this
+        engagement.
       </p>
       <ActionForm actionName="accept">
         <input type="hidden" name="token" value={token} />

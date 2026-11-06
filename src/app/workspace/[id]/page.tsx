@@ -11,6 +11,8 @@ import { agentResultSchema } from "@/lib/ai/contracts";
 import { ActionForm } from "@/components/action-form";
 import { ThreadedMessages } from "@/components/threaded-messages";
 import { Notifications } from "@/components/notifications";
+import { AccountMenu } from "@/components/account-menu";
+import { isWorkspaceAdmin } from "@/lib/admin-access";
 import { ConcernView } from "@/components/concern-view";
 import { PaymentView } from "@/components/payment-view";
 import Link from "next/link";
@@ -61,28 +63,52 @@ export default async function Workspace({
     redirect("/login");
   }
   const { db, user } = auth;
-  const results = await Promise.all([
+  const tab = tabs.includes(query.tab || "") ? query.tab! : "discussion";
+  const [projectResult, membersResult, sidebarResult, scopesResult, profileResult, ownMembershipsResult] = await Promise.all([
     db.from("engagements").select("*").eq("id", id).single(),
     db.from("memberships").select("*").eq("engagement_id", id),
     db.from("engagements").select("id,title").order("created_at"),
-    db
-      .from("scope_versions")
-      .select("*")
-      .eq("engagement_id", id)
-      .order("number", { ascending: false }),
-    db.from("agent_accounts").select("*").eq("engagement_id", id),
+    tab === "agreement" || tab === "milestones"
+      ? db
+          .from("scope_versions")
+          .select("*")
+          .eq("engagement_id", id)
+          .order("number", { ascending: false })
+      : { data: [] },
+    db.from("profiles").select("active_role").eq("id", user.id).maybeSingle(),
+    db.from("memberships").select("engagement_id,role").eq("user_id", user.id),
   ]);
-  const project = results[0].data;
+  const project = projectResult.data;
   if (!project) notFound();
-  const members = results[1].data || [];
-  const identities = await db.rpc("party_identities", { e: id });
+  const members = membersResult.data || [];
   const role = members.find((m) => m.user_id === user.id)?.role;
-  const scopes = results[3].data || [];
+  const activeRole: "client" | "professional" =
+    profileResult.data?.active_role === "professional" ? "professional" : "client";
+  const sidebarProjects = sidebarResult.data?.filter((p) =>
+    p.id === id || ownMembershipsResult.data?.some((m) => m.engagement_id === p.id && m.role === activeRole),
+  );
+  const scopes = scopesResult.data || [];
   const latest = scopes[0];
-  const tab = tabs.includes(query.tab || "") ? query.tab! : "discussion";
-  const { data: pendingInvitations } =
+  const visibility = query.context === "private" ? role : "shared";
+  const pageNumber = Math.min(
+    1000,
+    Math.max(0, Number.parseInt(query.page || "0", 10) || 0),
+  );
+  const [
+    identities,
+    invitationResult,
+    agent,
+    policy,
+    summaryRun,
+    messagesResult,
+    filesResult,
+    allApprovals,
+    noticesResult,
+    readResult,
+  ] = await Promise.all([
+    db.rpc("party_identities", { e: id }),
     tab === "discussion" && members.length < 2
-      ? await db
+      ? db
           .from("invitations")
           .select("id,email,role,expires_at")
           .eq("engagement_id", id)
@@ -90,21 +116,79 @@ export default async function Workspace({
           .is("revoked_at", null)
           .order("expires_at", { ascending: false })
           .limit(5)
-      : { data: [] };
-  const visibility = query.context === "private" ? role : "shared";
-  const agent = await agentView(
-    db,
-    id,
-    tab === "overview" ? "shared" : visibility,
-  );
-  const policy =
+      : { data: [] },
+    ["discussion", "overview", "credits"].includes(tab)
+      ? agentView(db, id, tab === "overview" ? "shared" : visibility)
+      : { summary: null, budgetNano: null, setupReason: null, runs: [] },
     tab === "credits"
-      ? await db
+      ? db
           .from("credit_policy_versions")
           .select("supported_topups")
           .eq("enabled", true)
           .single()
-      : { data: null };
+      : { data: null },
+    tab === "overview"
+      ? db
+          .from("agent_runs")
+          .select("result,created_at,finished_at")
+          .eq("engagement_id", id)
+          .eq("visibility", "shared")
+          .eq("status", "succeeded")
+          .eq("result->>kind", "summary")
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle()
+      : { data: null },
+    tab === "discussion"
+      ? db
+          .from("messages")
+          .select("*")
+          .eq("engagement_id", id)
+          .eq("visibility", visibility)
+          .order("created_at", { ascending: false })
+          .order("id", { ascending: false })
+          .range(pageNumber * 200, pageNumber * 200 + 199)
+      : { data: [], error: null },
+    tab === "discussion" || tab === "files"
+      ? db
+          .from("attachments")
+          .select("*")
+          .eq("engagement_id", id)
+          .eq("visibility", visibility)
+          .order("created_at", { ascending: false })
+          .limit(1000)
+      : { data: [] },
+    tab === "agreement" && scopes.length
+      ? db
+          .from("approvals")
+          .select("*")
+          .in(
+            "version_id",
+            scopes.map((s) => s.id),
+          )
+      : { data: [] },
+    db
+      .from("notifications")
+      .select("*")
+      .eq("engagement_id", id)
+      .order("created_at", { ascending: false })
+      .limit(50),
+    tab === "discussion"
+      ? db
+          .from("discussion_reads")
+          .select("last_read_at")
+          .eq("engagement_id", id)
+          .eq("user_id", user.id)
+          .maybeSingle()
+      : { data: null },
+  ]);
+  const pendingInvitations = invitationResult.data;
+  const recentMessages = messagesResult.data;
+  const messagesError = messagesResult.error;
+  const files = filesResult.data;
+  const notices = noticesResult.data;
+  const read = readResult.data;
+  const parsedSummary = agentResultSchema.safeParse(summaryRun.data?.result);
   const creditData =
     tab === "credits" && agent.summary
       ? await Promise.all([
@@ -130,34 +214,8 @@ export default async function Workspace({
             .limit(20),
         ])
       : null;
-  const summaryRun =
-    tab === "overview"
-      ? await db
-          .from("agent_runs")
-          .select("result,created_at,finished_at")
-          .eq("engagement_id", id)
-          .eq("visibility", "shared")
-          .eq("status", "succeeded")
-          .eq("result->>kind", "summary")
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle()
-      : { data: null };
-  const parsedSummary = agentResultSchema.safeParse(summaryRun.data?.result);
-  const pageNumber = Math.min(
-    1000,
-    Math.max(0, Number.parseInt(query.page || "0", 10) || 0),
-  );
-  const { data: recentMessages, error: messagesError } = await db
-    .from("messages")
-    .select("*")
-    .eq("engagement_id", id)
-    .eq("visibility", visibility)
-    .order("created_at", { ascending: false })
-    .order("id", { ascending: false })
-    .range(pageNumber * 200, pageNumber * 200 + 199);
   let messages = recentMessages || [];
-  if (
+  if (tab === "discussion" &&
     z.uuid().safeParse(query.message).success &&
     !messages.some((m) => m.id === query.message)
   ) {
@@ -173,13 +231,6 @@ export default async function Workspace({
         b.created_at.localeCompare(a.created_at),
       );
   }
-  const { data: files } = await db
-    .from("attachments")
-    .select("*")
-    .eq("engagement_id", id)
-    .eq("visibility", visibility)
-    .order("created_at", { ascending: false })
-    .limit(1000);
   const fileIds = (files || []).map((f) => f.id);
   const fileExtras =
     tab === "files" && fileIds.length
@@ -194,37 +245,19 @@ export default async function Workspace({
             .eq("attachments.visibility", visibility),
         ])
       : null;
-  const allApprovals = scopes.length
-    ? await db
-        .from("approvals")
-        .select("*")
-        .in(
-          "version_id",
-          scopes.map((s) => s.id),
-        )
-    : { data: [] };
   const approvals = (allApprovals.data || []).filter(
     (a) => a.version_id === latest?.id,
   );
-  const { data: notices } = await db
-    .from("notifications")
-    .select("*")
-    .eq("engagement_id", id)
-    .order("created_at", { ascending: false })
-    .limit(50);
-  const { data: read } = await db
-    .from("discussion_reads")
-    .select("last_read_at")
-    .eq("engagement_id", id)
-    .eq("user_id", user.id)
-    .maybeSingle();
-  const { count: unread } = await db
-    .from("messages")
-    .select("id", { count: "exact", head: true })
-    .eq("engagement_id", id)
-    .eq("visibility", "shared")
-    .neq("author_id", user.id)
-    .gt("created_at", read?.last_read_at || "1970-01-01T00:00:00Z");
+  const { count: unread } =
+    tab === "discussion"
+      ? await db
+          .from("messages")
+          .select("id", { count: "exact", head: true })
+          .eq("engagement_id", id)
+          .eq("visibility", "shared")
+          .neq("author_id", user.id)
+          .gt("created_at", read?.last_read_at || "1970-01-01T00:00:00Z")
+      : { count: 0 };
   return (
     <div className="min-h-screen md:grid md:grid-cols-[240px_1fr]">
       <aside className="bg-[#edf1f1] border-r border-slate-200 p-4 md:p-6">
@@ -244,7 +277,7 @@ export default async function Workspace({
         </Link>
         <p className="eyebrow mb-4 hidden md:block">Engagements</p>
         <nav className="flex gap-2 overflow-x-auto md:block">
-          {results[2].data?.map((p) => (
+          {sidebarProjects?.map((p) => (
             <Link
               key={p.id}
               href={`/workspace/${p.id}`}
@@ -286,11 +319,14 @@ export default async function Workspace({
                 ),
               )}
             </div>
-            <span className="badge">
-              {project.funding === "funded"
-                ? "Funded"
-                : "Private setup · funding pending"}
-            </span>
+            <div className="flex items-center gap-3">
+              <span className="badge">
+                {project.funding === "funded"
+                  ? "Funded"
+                  : "Private setup · funding pending"}
+              </span>
+              <AccountMenu activeRole={activeRole} isAdmin={isWorkspaceAdmin(user)} />
+            </div>
           </div>
           <LiveMessages key={id} engagementId={id} />
           <nav

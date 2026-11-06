@@ -2,6 +2,7 @@
 reset role;
 set role authenticated;
 select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000002',false);
+select public.set_active_role('professional');
 select public.create_engagement('Concern and invitation fixture','professional') as engagement \gset
 select public.create_invitation(:'engagement','client@example.test') as revoked_token \gset
 reset role;

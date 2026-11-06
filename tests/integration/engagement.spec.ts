@@ -58,7 +58,7 @@ test("two authenticated parties: grant, invite, private isolation, threads, file
         type: "signup",
         email,
         password,
-        options: { data: { workspace_test_run: run } },
+        options: { data: { workspace_test_run: run, profile_type: side === "professional" ? "professional" : "client" } },
       }),
       "Generate local verification fixture",
     );
@@ -159,7 +159,6 @@ test("two authenticated parties: grant, invite, private isolation, threads, file
     await signIn(pp, professional.email);
     const title = "[E2E] Reporting dashboard " + run.slice(0, 8);
     await cp.getByLabel("Engagement name").fill(title);
-    await cp.getByLabel("Your role in this engagement").selectOption("client");
     await cp
       .getByRole("button", { name: "Create engagement", exact: true })
       .click();
@@ -1062,6 +1061,10 @@ test("two authenticated parties: grant, invite, private isolation, threads, file
         "Invitee starter grant",
       ),
     ).toHaveLength(1);
+    const roleSwitch = await client.db.rpc("set_active_role", {
+      next_role: "professional",
+    });
+    expect(roleSwitch.error).toBeNull();
     const pending = checked(
       await client.db.rpc("create_engagement", {
         p_title: "[E2E] Pending creation " + run,

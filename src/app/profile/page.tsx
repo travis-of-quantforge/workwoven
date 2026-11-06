@@ -3,6 +3,8 @@ import { redirect } from "next/navigation";
 import { authenticated } from "@/lib/supabase/server";
 import { ActionForm } from "@/components/action-form";
 import { Button } from "@/components/ui/button";
+import { AccountMenu } from "@/components/account-menu";
+import { isWorkspaceAdmin } from "@/lib/admin-access";
 export default async function ProfilePage() {
   let auth;
   try {
@@ -17,14 +19,18 @@ export default async function ProfilePage() {
     .maybeSingle();
   return (
     <main className="max-w-3xl mx-auto p-5 py-8">
-      <Link className="underline text-sm" href="/">
-        ← All engagements
-      </Link>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <Link className="underline text-sm" href="/">← Workspace</Link>
+        <AccountMenu activeRole={p?.active_role === "professional" ? "professional" : "client"} isAdmin={isWorkspaceAdmin(auth.user)} />
+      </div>
       <h1 className="my-6">Your profile</h1>
+      <section className="panel mb-5">
+        <h2>Account context</h2>
+        <p className="muted mt-3">You started as a {p?.default_role || "client"}. You are currently browsing as a {p?.active_role || "client"}. Use the account menu to switch; your role in existing engagements stays the same.</p>
+      </section>
       <section className="panel">
         <p className="muted mb-5">
-          One account can be a client or professional in different engagements.
-          These fields become public only when you enable the public profile.
+          One account can work as a client or professional. These fields become public only when you enable the public profile.
           Email, discussions, files, prices and private assistant activity stay
           private.
         </p>

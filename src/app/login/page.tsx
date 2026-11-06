@@ -5,17 +5,20 @@ import { configured } from "@/lib/supabase/server";
 export default async function Login({
   searchParams,
 }: {
-  searchParams: Promise<{ notice?: string }>;
+  searchParams: Promise<{ notice?: string; mode?: string }>;
 }) {
-  const { notice } = await searchParams;
+  const { notice, mode } = await searchParams;
+  const signup = mode === "signup";
   return (
     <main className="mx-auto max-w-md px-5 py-20">
       <Link href="/" className="eyebrow">
         {process.env.NEXT_PUBLIC_APP_NAME || "Workspace"}
       </Link>
-      <h1 className="mt-8 mb-3">Good work starts with clarity.</h1>
+      <h1 className="mt-8 mb-3">{signup ? "Create your account" : "Welcome back"}</h1>
       <p className="muted mb-7">
-        Sign in to your shared client and professional workspace.
+        {signup
+          ? "Choose the workspace you want to start in. You can switch later from your account menu."
+          : "Sign in to continue your client or professional work."}
       </p>
       {notice && (
         <p role="status" className="notice mb-4">
@@ -29,6 +32,7 @@ export default async function Login({
         </p>
       )}
       <form action={login} className="panel stack">
+        <input type="hidden" name="mode" value={signup ? "signup" : "login"} />
         <div>
           <label htmlFor="email">Email</label>
           <input
@@ -46,26 +50,31 @@ export default async function Login({
             name="password"
             type="password"
             minLength={8}
-            autoComplete="current-password"
+            autoComplete={signup ? "new-password" : "current-password"}
             required
           />
         </div>
-        <Button name="mode" value="login" disabled={!configured()}>
-          Sign in
-        </Button>
-        <Button
-          variant="outline"
-          name="mode"
-          value="signup"
-          disabled={!configured()}
-        >
-          Create account
-        </Button>
+        {signup && (
+          <div>
+            <label htmlFor="profile-type">Start as</label>
+            <select id="profile-type" name="profileType" defaultValue="client" required>
+              <option value="client">Client</option>
+              <option value="professional">Freelancer / professional</option>
+            </select>
+          </div>
+        )}
+        <Button disabled={!configured()}>{signup ? "Create account" : "Sign in"}</Button>
         <small className="muted">
           Verify your email to claim your once-only $5 shared-agent starter
           grant on your first engagement.
         </small>
       </form>
+      <p className="muted mt-5 text-sm">
+        {signup ? "Already have an account? " : "New here? "}
+        <Link className="underline" href={signup ? "/login" : "/login?mode=signup"}>
+          {signup ? "Sign in" : "Create account"}
+        </Link>
+      </p>
     </main>
   );
 }

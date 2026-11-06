@@ -28,7 +28,7 @@ test("revoked invitation, mutual concern resolution, and accepted payment reques
       type: "signup",
       email,
       password,
-      options: { data: { workspace_test_run: run } },
+        options: { data: { workspace_test_run: run, profile_type: side === "professional" ? "professional" : "client" } },
     });
     if (generated.error || !generated.data.properties)
       throw new Error("Unable to generate concern test account");

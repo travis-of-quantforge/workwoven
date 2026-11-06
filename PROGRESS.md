@@ -1,11 +1,11 @@
 # Workspace progress
 
-Updated 2026-11-05. **The full brief is not complete.** Human collaboration works independently of provider setup. The configured OpenAI model passed a bounded synthetic provider test. Licensed Bryntum evaluation views render persisted data. PayPal remains unimplemented. The hackathon uses audited admin-issued promotional AI credits; real credit purchases are deferred. Future monetization is prepaid AI credits used at 2× provider cost, with no Workspace commission on professional payments.
+Updated 2026-11-06. **The full brief is not complete.** Human collaboration works independently of provider setup. The configured OpenAI model passed a bounded synthetic provider test. Licensed Bryntum evaluation views render persisted data. PayPal remains unimplemented. The hackathon uses audited admin-issued promotional AI credits; real credit purchases are deferred. Future monetization is prepaid AI credits used at 2× provider cost, with no Workspace commission on professional payments.
 
 ## Completed source/workflows
 
 - [x] One Next.js 16.4.5 / React 19.3 / TypeScript / Tailwind application, lockfile, Node 22 configuration, accessible Radix-based controls and environment placeholders.
-- [x] Supabase SSR authentication/confirmation callback, verified-user checks, per-engagement client/professional roles and dashboard role filters. One account can use both roles across engagements.
+- [x] Supabase SSR authentication/confirmation callback, verified-user checks, signup profile type, account-menu context switching and role-filtered dashboard. New engagements use the saved active context; existing per-engagement memberships remain authoritative for access and approvals. One account can use both roles across engagements.
 - [x] Secure email-bound, expiring, single-use invitations; replacement revokes earlier tokens. Closed engagements reject invitation acceptance. No invitation email is sent.
 - [x] Pending invitations are visible to the creator and can be explicitly revoked. Revoked tokens cannot be accepted; a fresh invitation can be issued.
 - [x] Once-only atomic $5 shared starter grant on first verified creation; three isolated balances/configurations. Later projects remain private pending-funding drafts.
@@ -23,18 +23,20 @@ Updated 2026-11-05. **The full brief is not complete.** Human collaboration work
 - [x] Meeting proposals/responses/revisions, tentative versus confirmed times, UTC/IANA timezone handling, DST occurrence choice, private ICS export, internal-clash warnings, notes and aggregate personal calendar.
 - [x] Opt-in public profiles/company identity, mutual completion and explicit cancellation, accepted-agreement-qualified reviews, SQL-enforced double-blind/deadline privacy, frozen feedback/replies, reports/service-only moderation and client-approved portfolio publication.
 - [x] Completion badge with published activity criteria. Demo activity is excluded from real public reviews, completion facts, portfolios and badges; no quality/identity/fraud-free claims.
-- [x] Sixteen migrations applied to hosted development Supabase with checksums and verified TLS; zero pending. Local-only repeatable seed and sub-three-minute demo script updated.
+- [x] Seventeen migrations applied to hosted development Supabase with checksums and verified TLS; zero pending. Local-only repeatable seed and sub-three-minute demo script updated.
 
 ## Actual validation
 
 - [x] Typecheck and ESLint passed.
 - [x] 42 unit tests passed, including no-commission PayPal order/capture guards, exact prices/cached usage, bounded provider mocks, evidence/privacy validation, milestone dependencies, DST gaps/repeated times and safe ICS folding/escaping.
-- [x] Isolated Postgres 18 suite passed all sixteen migrations and permission/accounting tests: cross-party/cross-engagement isolation, storage/retrieval, grant/purchase replay, concurrent reservations, source conservation, admin adjustment permissions/replay/overdraft/activation, failure recovery/corrections/refunds, stale/concurrent scope submission and dual approval, delivery roles/history, meeting transitions, cancelled-review threshold, double-blind/deadline publication, moderation and demo exclusion. New cases cover invitation revocation, concern privacy/mutual resolution, version-bound payment request amounts/roles/replay/supersession.
+- [x] Isolated Postgres 18 suite passed all seventeen migrations and permission/accounting tests: cross-party/cross-engagement isolation, storage/retrieval, grant/purchase replay, concurrent reservations, source conservation, admin adjustment permissions/replay/overdraft/activation, failure recovery/corrections/refunds, stale/concurrent scope submission and dual approval, delivery roles/history, meeting transitions, cancelled-review threshold, double-blind/deadline publication, moderation and demo exclusion. New cases cover invitation revocation, concern privacy/mutual resolution, version-bound payment request amounts/roles/replay/supersession, saved-role enforcement and rejected browser-supplied role overrides.
 - [x] Two desktop/mobile setup-state Playwright checks passed.
 - [x] Full hosted authenticated journey plus Bryntum and focused completion/review regressions passed (3 tests, 6.2 minutes). It covers generated confirmation tokens, UI sign-in, grant/invitation, actual private Realtime isolation, sharing, file upload/extraction/search/download/source links, scope/change/milestone approvals, delivery acceptance, meeting/ICS, profiles, double-blind demo feedback and pending second-project funding.
 - [x] Additional hosted review/reply regression passed (approximately 1.1 minutes), including persisted right of reply and mobile overflow check. Stable saved-reply screens were inspected at desktop and mobile widths.
 - [x] Focused hosted admin browser test passed with disposable verified accounts: non-admin access denied, admin Users page, $5 promotional grant, pending-project activation, audit record, mobile overflow and cleanup.
 - [x] Focused hosted two-account browser journey passed: revoked and fresh invitations, concern opening/replies/mutual resolution, shared Discussion evidence, mobile concern layout, dual scope approval, and a non-charging professional payment request visible to the client. Disposable fixtures were cleaned up.
+- [x] Focused hosted account-context browser test passed: signup profile type, account-menu switches, dashboard filtering, creation under each active role, unchanged prior membership, once-only starter grant and mobile overflow. Disposable fixture was cleaned up.
+- [x] Workspace tab loads now fetch only tab-relevant records and run independent reads concurrently. Authenticated account-context, Bryntum, concern and review browser checks passed; the full engagement journey passed on a focused rerun after correcting a test assertion for the void role-switch RPC. Each tab still uses authenticated server rendering for current permissions and data. Exact latency was not benchmarked.
 - [x] Production build passed after final application changes. No OpenAI or Supabase secret key was found in browser assets. Demo seed syntax check passed.
 - [x] Discussion/calendar/reputation inspected at desktop/mobile widths; real Bryntum Gantt/Calendar screens inspected at desktop/mobile widths; public-profile screen inspected at desktop width. Mobile calendar spacing improved. Public demo profile correctly showed zero real reviews/completions.
 - [ ] Local seed execution: local Supabase is not running here. Its fixture functions are covered by local SQL/hosted workflow tests, but the script itself has not been executed.
@@ -61,6 +63,6 @@ See [provider instructions](docs/PROVIDERS.md), [AI tools/billing/access](docs/A
 - Deploy a recurring authenticated maintenance call for expired AI work; no scheduler or deployment has been configured. No purchased-credit expiration is invented.
 - Extend the final provider-backed video after real PayPal sandbox checks; no simulated result should replace verification.
 
-The SQL-only guard rejects direct scope RPCs without a change explanation after acceptance; it remains covered by the sixteen-migration isolated suite.
+The SQL-only guard rejects direct scope RPCs without a change explanation after acceptance; it remains covered by the seventeen-migration isolated suite.
 
 No production access was changed, app deployed, live money charged, outreach sent or real public review published. Hosted test accounts/data are labelled disposable fixtures and cleaned up; interrupted runs can be cleaned using `npm run test:integration:cleanup` with their recorded run metadata.
