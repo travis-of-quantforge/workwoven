@@ -104,7 +104,10 @@ await checked(
     .from("engagement-files")
     .upload(path, sample, { contentType: "text/csv", upsert: false }),
 );
-await checked(await client.rpc("confirm_attachment", { p: path }));
+await checked(await client.rpc("confirm_attachment_with_message", {
+  p: path,
+  b: "Here is the example revenue CSV for the dashboard discussion.",
+}));
 const clientUser = await checked(await client.auth.getUser());
 await checked(
   await admin.rpc("store_attachment_text", {

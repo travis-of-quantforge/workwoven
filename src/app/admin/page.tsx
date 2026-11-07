@@ -4,7 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import { authenticated } from "@/lib/supabase/server";
 import { adminDatabase } from "@/lib/supabase/admin";
 import { isWorkspaceAdmin } from "@/lib/admin-access";
-import { formatNano } from "@/lib/ai/pricing";
+import { formatTokens } from "@/lib/ai/pricing";
 import { CreditForm } from "./credit-form";
 
 export const dynamic = "force-dynamic";
@@ -66,9 +66,9 @@ export default async function Admin({
         <p className="eyebrow">Admin / Users</p>
       </header>
       <div className="py-8">
-        <h1>Users and demo AI credits</h1>
+        <h1>Users and demo AI tokens</h1>
         <p className="muted mt-3 max-w-3xl">
-          Credits are USD usage value, not a fixed number of model tokens. These
+          10 Workspace tokens equal $1 of AI credit value. These are separate from model input and output tokens. These
           manual adjustments are promotional, recorded in the ledger, and never
           marked as purchases. Shared balances are visible to both project
           parties; private balances remain party-private.
@@ -141,8 +141,8 @@ export default async function Admin({
                                 : `${member.role} private agent`}
                             </p>
                             <p className="muted text-sm">
-                              Available {formatNano(account.available_nano)} ·
-                              Reserved {formatNano(account.reserved_nano)}
+                              Available {formatTokens(account.available_nano)} ·
+                              Reserved {formatTokens(account.reserved_nano)}
                             </p>
                             <CreditForm
                               accountId={account.id}

@@ -25,6 +25,13 @@ do $$ begin
  if(select available_nano from public.agent_accounts where id=current_setting('test.private_account')::uuid)<>4999786000 then raise exception 'Incorrect private charge';end if;
 end $$;
 set role authenticated;
+do $$ begin
+ if (select charge_nano from public.usage_operations where id=current_setting('test.op')::uuid)<>214000 then raise exception 'Own token charge unavailable';end if;
+ if has_column_privilege('authenticated','public.usage_operations','provider_nano','SELECT') or
+    has_column_privilege('authenticated','public.usage_operations','pricing_snapshot','SELECT') or
+    has_table_privilege('authenticated','public.ai_pricing','SELECT') or
+    has_table_privilege('authenticated','public.usage_metering','SELECT') then raise exception 'Provider economics exposed';end if;
+end $$;
 select public.request_credit_refund(:'purchase',100,'30000000-0000-0000-0000-000000000003') as refund \gset
 reset role;
 select public.resolve_credit_refund(:'refund','fixture-credit-refund',true);
@@ -57,7 +64,7 @@ set role authenticated;
 select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000002',false);
 do $$ begin
  if exists(select 1 from public.credit_lots where account_id=current_setting('test.private_account')::uuid) then raise exception 'Private lot leak';end if;
- if exists(select 1 from public.usage_metering where operation_id=current_setting('test.op')::uuid) then raise exception 'Private usage leak';end if;
+ begin perform 1 from public.usage_metering;raise exception 'Provider metering exposed';exception when insufficient_privilege then null;end;
  begin perform public.reserve_usage(current_setting('test.private_account')::uuid,auth.uid(),gen_random_uuid(),100);raise exception 'Reservation RPC exposed';exception when insufficient_privilege then null;end;
  begin update public.credit_ledger set amount_nano=999;raise exception 'Ledger mutable';exception when insufficient_privilege then null;end;
 end $$;

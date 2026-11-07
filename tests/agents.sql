@@ -10,7 +10,7 @@ select public.send_message(:'engagement','shared','fixture_token shared fact');
 select public.send_message(:'engagement','client','fixture_token client secret');
 select public.register_attachment(:'engagement','client','private-fixture.csv','text/csv',10) as private_path \gset
 insert into storage.objects(bucket_id,name) values('engagement-files',:'private_path');
-select public.confirm_attachment(:'private_path');
+select public.confirm_attachment_with_message(:'private_path','Private source file for planning.');
 reset role;
 select public.store_attachment_text(:'private_path','00000000-0000-0000-0000-000000000001','fixture_token privateCSV',repeat('a',64),true);
 set role authenticated;

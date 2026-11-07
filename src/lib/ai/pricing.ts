@@ -51,6 +51,27 @@ export function formatNano(value: string | number | bigint) {
   return `${sign}$${n / 1000000000n}.${fraction}`;
 }
 
+// At the launch exchange rate, one token is $0.10 = 100 million USD nanodollars.
+export const TOKEN_ATOMS = 100000000n;
+export function formatTokens(value: string | number | bigint) {
+  const atoms = BigInt(value);
+  const sign = atoms < 0n ? "-" : "";
+  const amount = atoms < 0n ? -atoms : atoms;
+  const fraction = (amount % TOKEN_ATOMS)
+    .toString()
+    .padStart(8, "0")
+    .replace(/0+$/, "");
+  return `${sign}${amount / TOKEN_ATOMS}${fraction ? "." + fraction : ""} tokens`;
+}
+
+export function parseTokens(value: FormDataEntryValue | null) {
+  const input = String(value ?? "").trim();
+  if (!/^(?:0|[1-9]\d{0,4})(?:\.\d{1,8})?$/.test(input))
+    throw new Error("Enter a valid token amount.");
+  const [whole, fraction = ""] = input.split(".");
+  return BigInt(whole) * TOKEN_ATOMS + BigInt(fraction.padEnd(8, "0") || "0");
+}
+
 export function validateCacheUsage(
   price: Price,
   details: { cached_tokens?: number; cache_write_tokens?: number },

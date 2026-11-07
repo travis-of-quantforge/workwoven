@@ -9,7 +9,7 @@ import {
   agentModeSchema,
   type AgentResult,
 } from "@/lib/ai/contracts";
-import { formatNano } from "@/lib/ai/pricing";
+import { formatTokens } from "@/lib/ai/pricing";
 import { usd } from "@/lib/domain";
 type Run = {
   id: string;
@@ -26,7 +26,7 @@ function EvidenceLinks({ result, id }: { result: AgentResult; id: string }) {
         const [kind, record] = c.ref.split(":");
         const tab =
           kind === "agreement"
-            ? "agreement"
+            ? "milestones"
             : kind === "attachment"
               ? "files"
               : "discussion";
@@ -158,6 +158,7 @@ export function AgentPanel({
   runs,
   userId,
   defaultMode = "advice",
+  compact = false,
 }: {
   engagementId: string;
   visibility: string;
@@ -167,11 +168,11 @@ export function AgentPanel({
   runs: Run[];
   userId: string;
   defaultMode?: "advice" | "summary";
+  compact?: boolean;
 }) {
   const router = useRouter();
   const [question, setQuestion] = useState("");
   const [mode, setMode] = useState<string>(defaultMode);
-  const [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
   const [preview, setPreview] = useState("");
@@ -182,6 +183,9 @@ export function AgentPanel({
     visibility === "shared" ? "Project agent" : `Private ${visibility} agent`;
   const sufficient =
     budgetNano !== null && BigInt(availableNano) >= BigInt(budgetNano);
+  const visibleRuns = compact
+    ? runs.filter((run) => run.status === "partial_offered" && run.actor_id === userId)
+    : runs;
   async function ask(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy) return;
@@ -201,8 +205,6 @@ export function AgentPanel({
           mode,
           question,
           operationKey: operation.current,
-          confirmedBudget: confirmed,
-          maximumChargeNano: budgetNano,
         }),
       });
       if (!response.ok) {
@@ -269,92 +271,101 @@ export function AgentPanel({
   }
   return (
     <section className="panel">
-      <p className="eyebrow">{label}</p>
-      <h2 className="mt-3">Clarity, with evidence</h2>
+      {compact ? (
+        <h2>Project Agent</h2>
+      ) : (
+        <>
+          <p className="eyebrow">{label}</p>
+          <h2 className="mt-3">Clarity, with evidence</h2>
+        </>
+      )}
       <p className="muted text-xs my-3">
         {visibility === "shared"
           ? "Both parties can read this interaction."
           : "Only your party can read this interaction. Shared sources are available; the other party’s private sources are excluded."}
       </p>
-      <p>
-        <strong>{formatNano(availableNano)}</strong>{" "}
-        <span className="muted text-xs">available</span>
-      </p>
-      <Link
-        className="underline text-xs text-teal-800"
-        href={`/workspace/${engagementId}?tab=credits${visibility === "shared" ? "" : "&context=private"}`}
-      >
-        Manage this agent’s credits
-      </Link>
-      {setupReason && <p className="notice text-xs mt-4">{setupReason}</p>}
-      {!setupReason && !sufficient && (
-        <p className="notice text-xs mt-4">
-          This balance cannot cover the maximum operation budget. Top up this
-          agent to continue. Human collaboration remains available.
-        </p>
+      {!compact && (
+        <>
+          <p>
+            <strong>{formatTokens(availableNano)}</strong>{" "}
+            <span className="muted text-xs">available</span>
+          </p>
+          <Link
+            className="underline text-xs text-teal-800"
+            href={`/workspace/${engagementId}?tab=credits${visibility === "shared" ? "" : "&context=private"}`}
+          >
+            Manage this agent’s tokens
+          </Link>
+          {setupReason && <p className="notice text-xs mt-4">{setupReason}</p>}
+          {!setupReason && !sufficient && (
+            <p className="notice text-xs mt-4">
+              This balance cannot cover the operation budget. Top up this
+              agent to continue. Human collaboration remains available.
+            </p>
+          )}
+        </>
       )}
       <form onSubmit={ask} className="stack mt-5">
+        {!compact && (
+          <div>
+            <label htmlFor={`agent-mode-${visibility}`}>Help with</label>
+            <select
+              id={`agent-mode-${visibility}`}
+              value={mode}
+              onChange={(e) => {
+                setMode(e.target.value);
+                operation.current = null;
+              }}
+              disabled={busy}
+            >
+              {agentModeSchema.options.map((option) => (
+                <option key={option} value={option}>
+                  {option === "scope"
+                    ? "Scope draft"
+                    : option === "change"
+                      ? "Scope comparison / change"
+                      : option === "summary"
+                        ? "Overview refresh"
+                        : option === "meeting"
+                          ? "Meeting proposal"
+                          : "Advice and questions"}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
         <div>
-          <label htmlFor={`agent-mode-${visibility}`}>Help with</label>
-          <select
-            id={`agent-mode-${visibility}`}
-            value={mode}
-            onChange={(e) => {
-              setMode(e.target.value);
-              setConfirmed(false);
-              operation.current = null;
-            }}
-            disabled={busy}
+          <label
+            className={compact ? "sr-only" : undefined}
+            htmlFor={`agent-question-${visibility}`}
           >
-            {agentModeSchema.options.map((option) => (
-              <option key={option} value={option}>
-                {option === "scope"
-                  ? "Scope draft"
-                  : option === "change"
-                    ? "Scope comparison / change"
-                    : option === "summary"
-                      ? "Overview refresh"
-                      : option === "meeting"
-                        ? "Meeting proposal"
-                        : "Advice and questions"}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label htmlFor={`agent-question-${visibility}`}>Your question</label>
+            Your question
+          </label>
           <textarea
             id={`agent-question-${visibility}`}
             value={question}
             onChange={(e) => {
               setQuestion(e.target.value);
-              setConfirmed(false);
               operation.current = null;
             }}
             maxLength={8000}
             required
             disabled={busy}
-            placeholder="What is still unclear, and what should we agree before delivery?"
+            placeholder={compact ? "Help me understand this better..." : "What is still unclear, and what should we agree before delivery?"}
           />
         </div>
-        <label className="mention-option">
-          <input
-            type="checkbox"
-            checked={confirmed}
-            onChange={(e) => setConfirmed(e.target.checked)}
-            disabled={busy || !!setupReason || !sufficient}
-          />
-          <span className="text-xs">
-            I authorise up to{" "}
-            {budgetNano ? formatNano(budgetNano) : "the configured maximum"}{" "}
-            from this balance. Actual usage is charged at 2× provider cost.
-          </span>
-        </label>
-        <Button disabled={busy || !!setupReason || !sufficient || !confirmed}>
-          {busy ? "Working…" : "Ask " + label.toLowerCase()}
+        <Button
+          disabled={busy || !!setupReason || !sufficient}
+          title={
+            compact && (setupReason || !sufficient)
+              ? setupReason || "This agent needs more tokens."
+              : undefined
+          }
+        >
+          {busy ? "Working…" : compact ? "Send" : "Ask " + label.toLowerCase()}
         </Button>
       </form>
-      {status && (
+      {status && (!compact || busy || status.startsWith("Partial")) && (
         <p role="status" className="muted text-xs mt-4">
           {status}
         </p>
@@ -364,57 +375,63 @@ export function AgentPanel({
           {error}
         </p>
       )}
-      {busy && preview && (
+      {!compact && busy && preview && (
         <div className="mt-4">
           <p className="eyebrow">Draft preview · still generating</p>
           <p className="whitespace-pre-wrap break-words mt-3">{preview}</p>
         </div>
       )}
-      {result && <AgentAdvice result={result} id={engagementId} />}
-      <div className="mt-6 space-y-5">
-        {runs.map((run) => {
-          const parsed = agentResultSchema.safeParse(run.result);
-          return (
-            <details key={run.id} className="border-t border-slate-200 pt-4">
-              <summary className="cursor-pointer text-sm">
-                {run.status.replaceAll("_", " ")} ·{" "}
-                {new Date(run.created_at).toLocaleString("en-GB", {
-                  timeZone: "UTC",
-                })}{" "}
-                UTC
-              </summary>
-              {parsed.success && (
-                <AgentAdvice result={parsed.data} id={engagementId} />
-              )}
-              <p className="muted text-xs mt-3">
-                Recommendations do not constitute approval. Use selected-content
-                sharing to publish private drafts.
-              </p>
-              {run.status === "partial_offered" && run.actor_id === userId && (
-                <ActionForm
-                  actionName="partial"
-                  className="mt-4 flex flex-wrap gap-3"
-                >
-                  <input type="hidden" name="id" value={engagementId} />
-                  <input type="hidden" name="operation" value={run.id} />
-                  <Button name="decision" value="keep">
-                    Keep result and charge{" "}
-                    {formatNano(run.partialChargeNano || 0)}
-                  </Button>
-                  <Button name="decision" value="discard" variant="outline">
-                    Discard without charge
-                  </Button>
-                </ActionForm>
-              )}
-            </details>
-          );
-        })}
-      </div>
-      <p className="muted text-xs mt-5">
-        No automatic refreshes or charges. Internal application failures and
-        unusable provider results are platform-funded. Low credits pause only
-        this agent.
-      </p>
+      {!compact && result && <AgentAdvice result={result} id={engagementId} />}
+      {visibleRuns.length > 0 && (
+        <div className="mt-6 space-y-5">
+          {visibleRuns.map((run) => {
+            const parsed = agentResultSchema.safeParse(run.result);
+            return (
+              <details key={run.id} className="border-t border-slate-200 pt-4">
+                <summary className="cursor-pointer text-sm">
+                  {run.status.replaceAll("_", " ")} ·{" "}
+                  {new Date(run.created_at).toLocaleString("en-GB", {
+                    timeZone: "UTC",
+                  })}{" "}
+                  UTC
+                </summary>
+                {parsed.success && (!compact || run.status === "partial_offered") && (
+                  <AgentAdvice result={parsed.data} id={engagementId} />
+                )}
+                {!compact && (
+                  <p className="muted text-xs mt-3">
+                    Recommendations do not constitute approval. Use selected-content
+                    sharing to publish private drafts.
+                  </p>
+                )}
+                {run.status === "partial_offered" && run.actor_id === userId && (
+                  <ActionForm
+                    actionName="partial"
+                    className="mt-4 flex flex-wrap gap-3"
+                  >
+                    <input type="hidden" name="id" value={engagementId} />
+                    <input type="hidden" name="operation" value={run.id} />
+                    <Button name="decision" value="keep">
+                      Keep result and charge{" "}
+                      {formatTokens(run.partialChargeNano || 0)}
+                    </Button>
+                    <Button name="decision" value="discard" variant="outline">
+                      Discard without charge
+                    </Button>
+                  </ActionForm>
+                )}
+              </details>
+            );
+          })}
+        </div>
+      )}
+      {!compact && (
+        <p className="muted text-xs mt-5">
+          No automatic refreshes or charges. Internal application failures and
+          unusable provider results are platform-funded. Low tokens pause only
+          this agent.
+        </p>
+      )}
     </section>
   );
 }

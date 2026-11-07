@@ -104,7 +104,7 @@ test("two authenticated parties: grant, invite, private isolation, threads, file
   async function fillScope(page: Page, emailReports = false) {
     await page
       .getByText(
-        emailReports ? "Propose a revision" : "Draft and submit scope",
+        emailReports ? "Propose a revision" : "Draft milestone agreement",
         { exact: true },
       )
       .click();
@@ -208,18 +208,19 @@ test("two authenticated parties: grant, invite, private isolation, threads, file
         { exact: true },
       ),
     ).toBeVisible();
-    await cp.locator("#upload").setInputFiles({
+    await cp.locator("#message-file").setInputFiles({
       name: "private-planning.txt",
       mimeType: "text/plain",
       buffer: Buffer.from("PRIVATE FIXTURE: internal planning notes."),
     });
-    await cp.getByRole("button", { name: "Upload", exact: true }).click();
+    await cp
+      .getByLabel("Private note · never shown to the counterparty")
+      .fill("Private planning file for this engagement.");
+    await cp.getByRole("button", { name: "Send message", exact: true }).click();
     await expect(
-      cp
-        .locator("form")
-        .filter({ has: cp.locator("#upload") })
-        .getByRole("status"),
-    ).toHaveText("Saved.");
+      cp.getByText("Private planning file for this engagement.", { exact: true }),
+    ).toBeVisible();
+    await expect(cp.getByRole("link", { name: "Open attachment: private-planning.txt" })).toBeVisible();
     await cp
       .getByLabel("Private note · never shown to the counterparty")
       .fill("UNSENT PRIVATE DRAFT must be cleared on context switch.");
@@ -236,8 +237,12 @@ test("two authenticated parties: grant, invite, private isolation, threads, file
       "",
     );
     await expect(
-      cp.getByRole("button", { name: "Ask project agent", exact: true }),
+      cp.getByRole("button", { name: "Send", exact: true }),
     ).toBeDisabled();
+    await expect(cp.getByRole("heading", { name: "Project Agent" })).toBeVisible();
+    await expect(cp.getByText("Both parties can read this interaction.")).toBeVisible();
+    await expect(cp.getByLabel("Help with")).toHaveCount(0);
+    await expect(cp.getByText("Manage this agent’s tokens")).toHaveCount(0);
     const pausedAI = await cp.request.post("/api/agents", {
       headers: { origin: "http://127.0.0.1:3200" },
       data: {},
@@ -532,18 +537,18 @@ test("two authenticated parties: grant, invite, private isolation, threads, file
       ),
     ).toHaveCount(0);
     await cp.goto("/workspace/" + e);
-    await cp.locator("#upload").setInputFiles({
+    await cp.locator("#message-file").setInputFiles({
       name: "example-revenue.csv",
       mimeType: "text/csv",
       buffer: Buffer.from("region,revenue\nSouth,1200\nNorth,800\n"),
     });
-    await cp.getByRole("button", { name: "Upload", exact: true }).click();
+    await cp.getByLabel("Message both parties", { exact: true })
+      .fill("Here is the example revenue CSV for the dashboard.");
+    await cp.getByRole("button", { name: "Send message", exact: true }).click();
     await expect(
-      cp
-        .locator("form")
-        .filter({ has: cp.locator("#upload") })
-        .getByRole("status"),
-    ).toHaveText("Saved.");
+      cp.getByText("Here is the example revenue CSV for the dashboard.", { exact: true }),
+    ).toBeVisible();
+    await expect(cp.getByRole("link", { name: "Open attachment: example-revenue.csv" })).toBeVisible();
     checked(
       await client.db
         .from("attachments")
@@ -586,21 +591,22 @@ test("two authenticated parties: grant, invite, private isolation, threads, file
     );
     expect(JSON.stringify(sharedText)).toContain("South,1200");
     expect(JSON.stringify(sharedText)).not.toContain("PRIVATE FIXTURE");
-    await cp.getByRole("link", { name: "AI credits", exact: true }).click();
+    await cp.getByRole("link", { name: "AI tokens", exact: true }).click();
     await expect(
-      cp.getByRole("heading", { name: "AI usage credits", exact: true }),
+      cp.getByRole("heading", { name: "AI usage tokens", exact: true }),
     ).toBeVisible();
-    await expect(cp.getByText("$5.00", { exact: true }).first()).toBeVisible();
+    await expect(cp.getByText("50 tokens", { exact: true }).first()).toBeVisible();
     await cp
       .getByRole("link", { name: "Your private assistant", exact: true })
       .click();
     await expect(
-      cp.getByText("Your private client credits", { exact: true }),
+      cp.getByText("Your private client tokens", { exact: true }),
     ).toBeVisible();
     await expect(
-      cp.getByText("Credits are low.", { exact: false }),
+      cp.getByText("Tokens are low.", { exact: false }),
     ).toBeVisible();
-    await cp.getByRole("link", { name: "agreement", exact: true }).click();
+    await cp.getByRole("link", { name: "milestones", exact: true }).click();
+    await expect(cp.getByRole("link", { name: "agreement", exact: true })).toHaveCount(0);
     await fillScope(cp);
     await cp
       .getByRole("button", { name: "Approve version 1 as client", exact: true })
@@ -608,7 +614,7 @@ test("two authenticated parties: grant, invite, private isolation, threads, file
     await expect(
       cp.getByText("Approvals: client", { exact: true }),
     ).toBeVisible();
-    await pp.getByRole("link", { name: "agreement", exact: true }).click();
+    await pp.getByRole("link", { name: "milestones", exact: true }).click();
     await pp
       .getByRole("button", {
         name: "Approve version 1 as professional",
@@ -692,14 +698,14 @@ test("two authenticated parties: grant, invite, private isolation, threads, file
         exact: true,
       }),
     ).toBeVisible();
-    await pp.getByRole("link", { name: "agreement", exact: true }).click();
+    await pp.getByRole("link", { name: "Review and approve this version above" }).click();
     await pp
       .getByRole("button", {
         name: "Approve version 3 as professional",
         exact: true,
       })
       .click();
-    await cp.goto(`/workspace/${e}?tab=agreement`);
+    await cp.goto(`/workspace/${e}?tab=milestones`);
     await cp
       .getByRole("button", { name: "Approve version 3 as client", exact: true })
       .click();
@@ -895,16 +901,10 @@ test("two authenticated parties: grant, invite, private isolation, threads, file
       .getByRole("button", { name: "Save profile and visibility", exact: true })
       .click();
     await expect(pp.getByRole("status")).toHaveText("Saved.");
-    await cp.goto(`/workspace/${e}?tab=reputation`);
+    await cp.goto(`/workspace/${e}?tab=overview`);
     await cp
       .getByLabel("Outcome reason", { exact: true })
       .fill("Accepted delivery and handover are complete.");
-    await cp
-      .getByRole("checkbox", {
-        name: "I confirm this action for my party.",
-        exact: true,
-      })
-      .check();
     await cp
       .getByRole("button", {
         name: "Confirm completion as client",
@@ -914,16 +914,10 @@ test("two authenticated parties: grant, invite, private isolation, threads, file
     await expect(
       cp.getByText("Completion confirmations: client", { exact: true }),
     ).toBeVisible();
-    await pp.goto(`/workspace/${e}?tab=reputation`);
+    await pp.goto(`/workspace/${e}?tab=overview`);
     await pp
       .getByLabel("Outcome reason", { exact: true })
       .fill("The agreed reporting work and handover are complete.");
-    await pp
-      .getByRole("checkbox", {
-        name: "I confirm this action for my party.",
-        exact: true,
-      })
-      .check();
     await pp
       .getByRole("button", {
         name: "Confirm completion as professional",
@@ -942,12 +936,6 @@ test("two authenticated parties: grant, invite, private isolation, threads, file
       "Honouring agreements (1–5)",
     ])
       await pp.getByLabel(label, { exact: true }).selectOption("5");
-    await pp
-      .getByRole("checkbox", {
-        name: "I have reviewed this exact feedback and understand it is frozen on submission.",
-        exact: true,
-      })
-      .check();
     await pp
       .getByRole("button", { name: "Submit private feedback", exact: true })
       .click();
@@ -991,12 +979,6 @@ test("two authenticated parties: grant, invite, private isolation, threads, file
       "Honouring agreements (1–5)",
     ])
       await cp.getByLabel(label, { exact: true }).selectOption("5");
-    await cp
-      .getByRole("checkbox", {
-        name: "I have reviewed this exact feedback and understand it is frozen on submission.",
-        exact: true,
-      })
-      .check();
     await cp
       .getByRole("button", { name: "Submit private feedback", exact: true })
       .click();

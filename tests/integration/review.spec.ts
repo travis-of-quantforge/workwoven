@@ -100,9 +100,11 @@ test("completion transition preserves review form and publishes only after both 
       await page.getByLabel("Password", { exact: true }).fill(password);
       await page.getByRole("button", { name: "Sign in", exact: true }).click();
       await expect(page).toHaveURL("http://127.0.0.1:3200/");
-      await page.goto(`/workspace/${e}?tab=reputation`);
+      await page.goto(`/workspace/${e}?tab=overview`);
+      await expect(page.getByRole("link", { name: "reputation", exact: true })).toHaveCount(0);
     }
     const [cp, pp] = pages;
+    await expect(cp.getByRole("heading", { name: "Two-way feedback" })).toHaveCount(0);
     for (const [page, role] of [
       [cp, "client"],
       [pp, "professional"],
@@ -111,12 +113,6 @@ test("completion transition preserves review form and publishes only after both 
       await page
         .getByLabel("Outcome reason", { exact: true })
         .fill("The accepted work has been completed and handed over.");
-      await page
-        .getByRole("checkbox", {
-          name: "I confirm this action for my party.",
-          exact: true,
-        })
-        .check();
       await page
         .getByRole("button", {
           name: `Confirm completion as ${role}`,
@@ -140,12 +136,6 @@ test("completion transition preserves review form and publishes only after both 
       "Honouring agreements (1–5)",
     ])
       await pp.getByLabel(name, { exact: true }).selectOption("5");
-    await pp
-      .getByRole("checkbox", {
-        name: "I have reviewed this exact feedback and understand it is frozen on submission.",
-        exact: true,
-      })
-      .check();
     const form = pp.locator("form").filter({
       has: pp.getByRole("button", {
         name: "Submit private feedback",
@@ -193,12 +183,6 @@ test("completion transition preserves review form and publishes only after both 
       "Honouring agreements (1–5)",
     ])
       await cp.getByLabel(name, { exact: true }).selectOption("5");
-    await cp
-      .getByRole("checkbox", {
-        name: "I have reviewed this exact feedback and understand it is frozen on submission.",
-        exact: true,
-      })
-      .check();
     await cp
       .getByRole("button", { name: "Submit private feedback", exact: true })
       .click();

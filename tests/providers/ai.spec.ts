@@ -112,7 +112,7 @@ test("real OpenAI response: evidence, two verified receipts, exact settlement an
       }),
     );
     const price = checked(
-      await client.db
+      await admin
         .from("ai_pricing")
         .select("*")
         .eq("model", process.env.OPENAI_MODEL!)
@@ -136,8 +136,6 @@ test("real OpenAI response: evidence, two verified receipts, exact settlement an
       question:
         "Summarise the agreed dashboard acceptance criteria in two sentences. Cite the exact accepted agreement. Do not propose a scope change; use null for proposal and summary.",
       operationKey: randomUUID(),
-      confirmedBudget: true,
-      maximumChargeNano: budget.toString(),
     };
     const response = await page.request.post("/api/agents", {
       headers: { origin: "http://127.0.0.1:3300" },
@@ -159,14 +157,14 @@ test("real OpenAI response: evidence, two verified receipts, exact settlement an
       visibility: "shared",
     });
     const operation = checked(
-      await client.db
+      await admin
         .from("usage_operations")
         .select("*")
         .eq("id", result.runId)
         .single(),
     );
     const metering = checked(
-      await client.db
+      await admin
         .from("usage_metering")
         .select("*")
         .eq("operation_id", operation.id),
@@ -181,6 +179,10 @@ test("real OpenAI response: evidence, two verified receipts, exact settlement an
     expect(BigInt(operation.charge_nano) <= budget).toBe(true);
     expect(operation.status).toBe("settled");
     expect(operation.usage_uncertain).toBe(false);
+    expect((await client.db.from("ai_pricing").select("id")).error).not.toBeNull();
+    expect((await client.db.from("usage_metering").select("id")).error).not.toBeNull();
+    expect((await client.db.from("usage_operations").select("provider_nano")).error).not.toBeNull();
+    expect(checked(await client.db.from("usage_operations").select("charge_nano").eq("id", operation.id).single()).charge_nano).toBe(operation.charge_nano);
     for (const m of metering) {
       expect(m.pricing_id).toBe(price.id);
       expect(m.pricing_snapshot.model).toBe(price.model);
@@ -200,7 +202,7 @@ test("real OpenAI response: evidence, two verified receipts, exact settlement an
     expect((await replay.json()).runId).toBe(operation.id);
     expect(
       checked(
-        await client.db
+        await admin
           .from("usage_metering")
           .select("id")
           .eq("operation_id", operation.id),

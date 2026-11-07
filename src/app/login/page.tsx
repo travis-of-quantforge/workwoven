@@ -65,7 +65,7 @@ export default async function Login({
         )}
         <Button disabled={!configured()}>{signup ? "Create account" : "Sign in"}</Button>
         <small className="muted">
-          Verify your email to claim your once-only $5 shared-agent starter
+          Verify your email to claim your once-only 50-token shared-agent starter
           grant on your first engagement.
         </small>
       </form>

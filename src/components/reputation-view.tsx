@@ -51,63 +51,65 @@ export async function ReputationView({
     role === "professional"
       ? ["communication", "clarity", "collaboration", "honouringAgreements"]
       : ["communication", "delivery", "collaboration", "honouringAgreements"];
+  const isOpen = ["discussion", "active"].includes(status);
   return (
     <div className="stack">
-      <section className="panel">
-        <p className="eyebrow">Engagement outcome</p>
-        <h2 className="mt-3">Completion, feedback and portfolio</h2>
-        <p className="muted mt-3">
-          Status: {status}. Closing an engagement does not settle a concern,
-          execute a refund or erase accepted obligations. Completion requires
-          both parties’ confirmation of the current accepted agreement.
-        </p>
-        {isDemo && (
-          <p className="notice mt-4">
-            Demo engagement: feedback and activity are excluded from real public
-            reputation.
+      {isOpen && (
+        <section className="panel">
+          <p className="eyebrow">Engagement outcome</p>
+          <h2 className="mt-3">Finish engagement</h2>
+          <p className="muted mt-3">
+            Status: {status}. Closing an engagement does not settle a concern,
+            execute a refund or erase accepted obligations. Completion requires
+            both parties’ confirmation of the current accepted agreement.
           </p>
-        )}
-        {["discussion", "active"].includes(status) && (
-          <>
-            <p className="text-sm my-4">
-              Completion confirmations:{" "}
-              {currentApprovals.map((a) => a.role).join(", ") || "None"}
+          {isDemo && (
+            <p className="notice mt-4">
+              Demo engagement: feedback and activity are excluded from real public
+              reputation.
             </p>
-            <ActionForm actionName="engagement-outcome" className="stack">
-              <input type="hidden" name="id" value={id} />
-              <input type="hidden" name="expected" value={accepted || ""} />
-              <label htmlFor="outcome-reason">Outcome reason</label>
-              <textarea
-                id="outcome-reason"
-                name="reason"
-                maxLength={3000}
-                required
-              />
-              <label className="mention-option">
-                <input type="checkbox" name="confirmed" value="yes" required />
-                <span>I confirm this action for my party.</span>
-              </label>
-              <div className="flex flex-wrap gap-3">
-                <Button
-                  name="outcome"
-                  value="completed"
-                  disabled={
-                    !accepted ||
-                    currentApprovals.some((a) => a.user_id === userId)
-                  }
-                >
-                  Confirm completion as {role}
-                </Button>
-                <Button name="outcome" value="cancelled" variant="outline">
-                  Cancel engagement
-                </Button>
-              </div>
-            </ActionForm>
-          </>
-        )}
-      </section>
+          )}
+          <p className="text-sm my-4">
+            Completion confirmations:{" "}
+            {currentApprovals.map((a) => a.role).join(", ") || "None"}
+          </p>
+          <ActionForm actionName="engagement-outcome" className="stack">
+            <input type="hidden" name="id" value={id} />
+            <input type="hidden" name="expected" value={accepted || ""} />
+            <label htmlFor="outcome-reason">Outcome reason</label>
+            <textarea
+              id="outcome-reason"
+              name="reason"
+              maxLength={3000}
+              required
+            />
+            <div className="flex flex-wrap gap-3">
+              <Button
+                name="outcome"
+                value="completed"
+                disabled={
+                  !accepted ||
+                  currentApprovals.some((a) => a.user_id === userId)
+                }
+              >
+                Confirm completion as {role}
+              </Button>
+              <Button name="outcome" value="cancelled" variant="outline">
+                Cancel engagement
+              </Button>
+            </div>
+          </ActionForm>
+        </section>
+      )}
+      {!isOpen && (
+        <>
       <section className="panel">
         <h2>Two-way feedback</h2>
+        {isDemo && (
+          <p className="notice mt-4">
+            Demo engagement: feedback and activity are excluded from real public reputation.
+          </p>
+        )}
         <p className="muted my-3">
           A formally accepted agreement is required before a completed or
           cancelled engagement is eligible. An invitation or discussion alone
@@ -172,13 +174,7 @@ export async function ReputationView({
                 </div>
               ))}
             </div>
-            <label className="mention-option">
-              <input type="checkbox" name="confirmed" value="yes" required />
-              <span>
-                I have reviewed this exact feedback and understand it is frozen
-                on submission.
-              </span>
-            </label>
+            <p className="muted text-xs">Feedback is frozen when you submit it.</p>
             <Button>Submit private feedback</Button>
           </ActionForm>
         )}
@@ -352,6 +348,8 @@ export async function ReputationView({
           </details>
         )}
       </section>
+        </>
+      )}
     </div>
   );
 }

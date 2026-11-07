@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { ActionForm } from "./action-form";
 import { Button } from "./ui/button";
-import { formatNano } from "@/lib/ai/pricing";
+import { formatTokens, TOKEN_ATOMS } from "@/lib/ai/pricing";
 import { usd } from "@/lib/domain";
 type Summary = {
   accountId: string;
@@ -22,7 +22,6 @@ type Usage = {
   id: string;
   status: string;
   charge_nano: number;
-  provider_nano: number | null;
   usage_uncertain: boolean;
   created_at: string;
 };
@@ -56,12 +55,13 @@ export function CreditView({
       <div className="panel">
         <p className="eyebrow">
           {visibility === "shared"
-            ? "Shared project credits"
-            : `Your private ${visibility} credits`}
+            ? "Shared project tokens"
+            : `Your private ${visibility} tokens`}
         </p>
-        <h2 className="mt-3">AI usage credits</h2>
+        <h2 className="mt-3">AI usage tokens</h2>
         <p className="muted my-3">
-          Prepaid application usage, separate from professional payments.{" "}
+          10 Workspace tokens equal $1 of AI usage value. These are separate
+          from professional payments.{" "}
           {visibility === "shared"
             ? "Shared spending is visible to both parties."
             : "Your balance and usage are visible only to your party."}
@@ -75,49 +75,48 @@ export function CreditView({
             <div key={label}>
               <dt className="eyebrow">{label}</dt>
               <dd className="text-xl font-semibold mt-2">
-                {formatNano(value)}
+                {formatTokens(value)}
               </dd>
             </div>
           ))}
         </dl>
         <p className="muted text-xs mt-5">
-          Available promotional credits:{" "}
-          {formatNano(summary.promotionalAvailableNano)} · Available purchased
-          credits: {formatNano(summary.purchasedAvailableNano)}
+          Available promotional tokens:{" "}
+          {formatTokens(summary.promotionalAvailableNano)} · Available purchased
+          tokens: {formatTokens(summary.purchasedAvailableNano)}
         </p>
-        {BigInt(summary.availableNano) < 1000000000n && (
+        {BigInt(summary.availableNano) < 10n * TOKEN_ATOMS && (
           <p className="notice text-sm mt-4">
-            Credits are low. Messages, files, approvals and existing records
+            Tokens are low. Messages, files, approvals and existing records
             remain usable.
           </p>
         )}
         <div className="border-t border-slate-200 pt-5 mt-6">
-          <h3>Credit allocation</h3>
+          <h3>Token allocation</h3>
           <p className="notice text-sm my-4">
             During the hackathon, an authorised admin can allocate promotional
-            demo credits. PayPal credit checkout is not implemented; these
-            disabled purchase amounts do not create a charge or credits.
+            demo tokens. PayPal checkout is not implemented; these
+            disabled purchase amounts do not create a charge or tokens.
           </p>
           <div className="flex flex-wrap gap-3">
             {topupAmounts.map((c) => (
               <Button key={c} disabled>
-                {usd(c)}
+                {usd(c)} · {formatTokens(BigInt(c) * 10000000n)}
               </Button>
             ))}
           </div>
           <p className="muted text-xs mt-4">
             The signup grant funds only the shared agent. Private use needs a
             separate admin allocation during the hackathon. Promotional
-            credits are non-transferable and have no cash value.
+            tokens are non-transferable and have no cash value.
           </p>
         </div>
       </div>
       <div className="panel overflow-x-auto">
         <h2>Recent usage</h2>
         <p className="muted my-3 text-xs">
-          Original charge = metered provider cost × 2. No per-operation cent
-          rounding; failed-request costs may be absorbed by the platform.
-          Corrections and refunds appear in the ledger.
+          Small charges retain fractional tokens. Internal failures and unusable
+          results do not spend your tokens. Corrections appear in the ledger.
         </p>
         {!usage.length ? (
           <p>No AI usage recorded in this balance.</p>
@@ -127,8 +126,7 @@ export function CreditView({
               <tr>
                 <th className="p-2">Time (UTC)</th>
                 <th className="p-2">Status</th>
-                <th className="p-2">Provider cost</th>
-                <th className="p-2">Original charge</th>
+                <th className="p-2">Tokens charged</th>
               </tr>
             </thead>
             <tbody>
@@ -141,12 +139,9 @@ export function CreditView({
                   </td>
                   <td className="p-2">{u.status.replaceAll("_", " ")}</td>
                   <td className="p-2">
-                    {u.provider_nano === null
-                      ? "Unconfirmed"
-                      : formatNano(u.provider_nano)}
-                    {u.usage_uncertain ? " (known portion only)" : ""}
+                    {formatTokens(u.charge_nano)}
+                    {u.usage_uncertain ? " · usage uncertain" : ""}
                   </td>
-                  <td className="p-2">{formatNano(u.charge_nano)}</td>
                 </tr>
               ))}
             </tbody>
@@ -154,11 +149,11 @@ export function CreditView({
         )}
       </div>
       <div className="panel">
-        <h2>Purchased credits and refund requests</h2>
+        <h2>Purchased tokens and refund requests</h2>
         <p className="muted text-xs my-3">
-          Request a manual refund of unused purchased credits. The requested
-          amount is reserved during review; credits are reversed only after a
-          verified provider refund. Sub-cent unused credit remains available.
+          Request a manual refund of unused purchased tokens. The requested
+          amount is reserved during review; tokens are reversed only after a
+          verified provider refund. Fractional unused tokens remain available.
         </p>
         {!purchases.length && <p>No purchases recorded.</p>}
         {purchases.map((p) => (
@@ -200,7 +195,7 @@ export function CreditView({
           {ledger.map((l) => (
             <li key={l.id} className="text-xs border-t border-slate-100 pt-3">
               {l.kind.replaceAll("_", " ")} · {l.source} ·{" "}
-              {formatNano(l.amount_nano)} ·{" "}
+              {formatTokens(l.amount_nano)} ·{" "}
               {new Date(l.created_at).toLocaleString("en-GB", {
                 timeZone: "UTC",
               })}{" "}

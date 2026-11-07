@@ -30,21 +30,21 @@ export function CreditForm({
           className="mt-1 block rounded-md border border-slate-300 p-2"
           required
         >
-          <option value="add">Add demo credits</option>
-          <option value="remove">Remove demo credits</option>
+          <option value="add">Add demo tokens</option>
+          <option value="remove">Remove demo tokens</option>
         </select>
       </label>
       <label className="text-xs">
-        USD credit value
+        Workspace tokens
         <input
           name="amount"
           type="number"
-          min="0.01"
-          max="1000"
-          step="0.01"
+          min="0.1"
+          max="10000"
+          step="0.00000001"
           required
           className="mt-1 block w-28 rounded-md border border-slate-300 p-2"
-          placeholder="5.00"
+          placeholder="50"
         />
       </label>
       <label className="text-xs">

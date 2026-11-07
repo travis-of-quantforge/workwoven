@@ -68,13 +68,16 @@ export async function createEngagement(f: FormData) {
 }
 export async function postMessage(f: FormData) {
   const e = id(f);
-  await command("post_discussion_message", {
-    e,
-    v: visibilitySchema.parse(f.get("visibility")),
-    b: z.string().trim().min(1).max(30000).parse(f.get("body")),
-    parent: f.get("parent") ? z.uuid().parse(f.get("parent")) : null,
-    mentions: z.array(z.uuid()).max(2).parse(f.getAll("mention")),
-  });
+  const v = visibilitySchema.parse(f.get("visibility"));
+  const b = z.string().trim().min(1).max(30000).parse(f.get("body"));
+  const parent = f.get("parent") ? z.uuid().parse(f.get("parent")) : null;
+  const mentions = z.array(z.uuid()).max(2).parse(f.getAll("mention"));
+  const file = f.get("file");
+  if (file instanceof File && file.size > 0) {
+    await uploadMessageFile(e, v, b, parent, mentions, file);
+  } else {
+    await command("post_discussion_message", { e, v, b, parent, mentions });
+  }
   revalidatePath(`/workspace/${e}`);
 }
 export async function shareContent(f: FormData) {
@@ -202,18 +205,23 @@ export async function acceptInvite(f: FormData) {
   revalidatePath("/");
   redirect(`/workspace/${e}`);
 }
-export async function uploadFile(f: FormData) {
-  const e = id(f);
+async function uploadMessageFile(
+  e: string,
+  v: z.infer<typeof visibilitySchema>,
+  b: string,
+  parent: string | null,
+  mentions: string[],
+  file: File,
+) {
   const { db, user } = await authenticated();
-  const file = f.get("file");
-  if (!(file instanceof File) || file.size === 0 || file.size > 20971520)
+  if (file.size === 0 || file.size > 20971520)
     throw new Error("Choose a file up to 20 MB.");
   const bytes = new Uint8Array(await file.arrayBuffer());
   const validationError = validateUpload(bytes, file.type);
   if (validationError) throw new WorkspaceActionError(validationError);
   const { data: path, error } = await db.rpc("register_attachment", {
     e,
-    v: visibilitySchema.parse(f.get("visibility")),
+    v,
     n: safeFilename(file.name),
     mime: file.type,
     bytes: file.size,
@@ -228,10 +236,31 @@ export async function uploadFile(f: FormData) {
       "Upload did not finish. Please retry; no completed file was recorded.",
     );
   }
-  const confirmation = await db.rpc("confirm_attachment", { p: path });
-  if (confirmation.error)
+  const confirmation = await db.rpc("confirm_attachment_with_message", {
+    p: path,
+    b,
+    parent,
+    mentions,
+  });
+  if (confirmation.error) {
+    const current = await db
+      .from("attachments")
+      .select("upload_status,source_message_id")
+      .eq("object_path", path)
+      .maybeSingle();
+    if (current.error)
+      throw new WorkspaceActionError(
+        "The upload status is uncertain. Refresh before retrying the message.",
+      );
+    if (current.data?.upload_status !== "ready" || !current.data.source_message_id) {
+      const removed = await db.storage.from("engagement-files").remove([path]);
+      if (!removed.error) await db.rpc("abort_attachment", { p: path });
+      throw databaseActionError(confirmation.error.code || "", confirmation.error.message);
+    }
+  }
+  if (!confirmation.error && !confirmation.data)
     throw new WorkspaceActionError(
-      "The file was uploaded but confirmation failed. Please refresh before retrying.",
+      "The upload status is uncertain. Refresh before retrying the message.",
     );
   const admin = adminDatabase();
   if (["text/plain", "text/csv"].includes(file.type)) {
@@ -256,7 +285,6 @@ export async function uploadFile(f: FormData) {
       .update({ extraction_status: "unsupported" })
       .eq("object_path", path)
       .eq("owner_id", user.id);
-  revalidatePath(`/workspace/${e}`);
 }
 export async function downloadFile(f: FormData) {
   const { db } = await authenticated();
@@ -475,8 +503,6 @@ export async function saveProfile(f: FormData) {
   revalidatePath(`/people/${user.id}`);
 }
 export async function engagementOutcome(f: FormData) {
-  if (f.get("confirmed") !== "yes")
-    throw new WorkspaceActionError("Confirm the outcome for your party first.");
   await command("close_engagement", {
     e: id(f),
     target: z.enum(["completed", "cancelled"]).parse(f.get("outcome")),
@@ -487,8 +513,6 @@ export async function engagementOutcome(f: FormData) {
   revalidatePath("/");
 }
 export async function submitReview(f: FormData) {
-  if (f.get("confirmed") !== "yes")
-    throw new WorkspaceActionError("Review and confirm your feedback first.");
   const d = Object.fromEntries(
     [
       "communication",
@@ -593,7 +617,6 @@ export async function workspaceFormAction(
     "concern-acknowledge": acknowledgeConcern,
     "payment-request": createPaymentRequest,
     accept: acceptInvite,
-    upload: uploadFile,
     download: downloadFile,
     read: markRead,
     seen: markNotificationSeen,

@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { authenticated } from "@/lib/supabase/server";
 import { adminDatabase } from "@/lib/supabase/admin";
 import { isWorkspaceAdmin } from "@/lib/admin-access";
-import { parseUsd } from "@/lib/domain";
+import { parseTokens, TOKEN_ATOMS } from "@/lib/ai/pricing";
 
 export async function adjustDemoCredits(
   _previous: { error: string; success: boolean },
@@ -29,10 +29,10 @@ export async function adjustDemoCredits(
       reason.length > 500
     )
       throw new Error("Check the account, direction and reason.");
-    const cents = parseUsd(form.get("amount"));
-    if (cents < 1 || cents > 100000)
-      throw new Error("Enter $0.01 to $1,000.00.");
-    const delta = BigInt(cents) * 10000000n * (direction === "add" ? 1n : -1n);
+    const atoms = parseTokens(form.get("amount"));
+    if (atoms < TOKEN_ATOMS / 10n || atoms > 10000n * TOKEN_ATOMS)
+      throw new Error("Enter 0.1 to 10,000 tokens.");
+    const delta = atoms * (direction === "add" ? 1n : -1n);
     const { error } = await adminDatabase().rpc("admin_adjust_credits", {
       a: account,
       actor: user.id,

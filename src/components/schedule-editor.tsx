@@ -29,7 +29,7 @@ export function ScheduleEditor({
       </summary>
       <p className="muted text-sm my-4">
         Dates, dependencies, deliverables and payment terms become part of the
-        next immutable agreement version. Both parties approve it in Agreement.
+        next immutable milestone agreement version. Both parties approve it above.
         The current accepted schedule stays in force until then.
       </p>
       <ActionForm actionName="milestone-plan" className="stack">

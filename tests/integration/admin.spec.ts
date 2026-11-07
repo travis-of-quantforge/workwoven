@@ -71,7 +71,7 @@ test("admin can allocate demo credits; another verified user cannot open admin",
     const outsider = await outsiderContext.newPage();
     await signIn(outsider, otherEmail);
     await outsider.goto("/admin");
-    await expect(outsider.getByText("Users and demo AI credits")).toHaveCount(
+    await expect(outsider.getByText("Users and demo AI tokens")).toHaveCount(
       0,
     );
     await outsiderContext.close();
@@ -81,7 +81,7 @@ test("admin can allocate demo credits; another verified user cannot open admin",
     await signIn(page, adminEmail);
     await page.goto("/admin");
     await expect(
-      page.getByRole("heading", { name: "Users and demo AI credits" }),
+      page.getByRole("heading", { name: "Users and demo AI tokens" }),
     ).toBeVisible();
     const project = page
       .locator("section.panel > div")
@@ -90,12 +90,12 @@ test("admin can allocate demo credits; another verified user cannot open admin",
     const shared = project
       .locator("div.rounded-lg")
       .filter({ hasText: "Shared project agent" });
-    await shared.getByLabel("USD credit value").fill("5.00");
+    await shared.getByLabel("Workspace tokens").fill("50");
     await shared.getByLabel("Reason").fill("Hackathon browser fixture");
     await shared.getByRole("button", { name: "Apply" }).click();
     await expect(project.getByText("client · funded")).toBeVisible();
     await expect(
-      shared.getByText("Available $5.00", { exact: false }),
+      shared.getByText("Available 50 tokens", { exact: false }),
     ).toBeVisible();
     const account = await service
       .from("agent_accounts")
@@ -115,7 +115,7 @@ test("admin can allocate demo credits; another verified user cannot open admin",
     expect(adjustment.data?.reason).toBe("Hackathon browser fixture");
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(
-      page.getByRole("heading", { name: "Users and demo AI credits" }),
+      page.getByRole("heading", { name: "Users and demo AI tokens" }),
     ).toBeVisible();
     expect(
       await page.evaluate(

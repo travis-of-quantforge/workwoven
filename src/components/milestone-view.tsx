@@ -92,8 +92,8 @@ export async function MilestoneView({
       </section>
       {!tasks?.length && (
         <p className="panel">
-          No milestone plan yet. Submit scope in Agreement, then propose
-          deliverables and dates here.
+          No milestone plan yet. Draft the milestone agreement above, then
+          propose deliverables and dates here.
         </p>
       )}
       {groups.map((version) => {
@@ -379,9 +379,9 @@ export async function MilestoneView({
             {proposed && (
               <Link
                 className="underline text-sm"
-                href={`/workspace/${id}?tab=agreement`}
+                href={`/workspace/${id}?tab=milestones#version-${version}`}
               >
-                Review and approve this version in Agreement
+                Review and approve this version above
               </Link>
             )}
             {content}

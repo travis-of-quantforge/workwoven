@@ -3,6 +3,8 @@ import {
   providerCost,
   reservationBudget,
   formatNano,
+  formatTokens,
+  parseTokens,
   type Price,
 } from "../src/lib/ai/pricing";
 import { parseUsd } from "../src/lib/domain";
@@ -19,6 +21,14 @@ it("charges cached inputs once at their documented discounted rate", () =>
 it("preserves nanodollars in small usage displays", () => {
   expect(formatNano(34)).toBe("$0.000000034");
   expect(formatNano("5000000000")).toBe("$5.00");
+});
+it("converts existing balances and tiny charges to fractional Workspace tokens", () => {
+  expect(formatTokens("5000000000")).toBe("50 tokens");
+  expect(formatTokens(31846400)).toBe("0.318464 tokens");
+  expect(formatTokens(34)).toBe("0.00000034 tokens");
+  expect(parseTokens("50")).toBe(5000000000n);
+  expect(parseTokens("0.318464")).toBe(31846400n);
+  expect(() => parseTokens("0.000000001")).toThrow();
 });
 it("bounds both model turns including output/reasoning tokens", () => {
   expect(reservationBudget(price)).toBeGreaterThan(

@@ -10,6 +10,7 @@ import { agentView } from "@/lib/ai/view";
 import { agentResultSchema } from "@/lib/ai/contracts";
 import { ActionForm } from "@/components/action-form";
 import { ThreadedMessages } from "@/components/threaded-messages";
+import { MessageAttachmentPicker } from "@/components/message-attachment-picker";
 import { Notifications } from "@/components/notifications";
 import { AccountMenu } from "@/components/account-menu";
 import { isWorkspaceAdmin } from "@/lib/admin-access";
@@ -22,7 +23,6 @@ import {
   ArrowLeft,
   LockKeyhole,
   MessageSquare,
-  Paperclip,
   CheckCircle2,
 } from "lucide-react";
 import { authenticated } from "@/lib/supabase/server";
@@ -32,14 +32,12 @@ import { ShareDraft } from "@/components/share-draft";
 const tabs = [
   "discussion",
   "overview",
-  "agreement",
   "milestones",
   "files",
   "calendar",
   "concerns",
   "payments",
   "credits",
-  "reputation",
 ];
 export default async function Workspace({
   params,
@@ -63,12 +61,16 @@ export default async function Workspace({
     redirect("/login");
   }
   const { db, user } = auth;
-  const tab = tabs.includes(query.tab || "") ? query.tab! : "discussion";
+  const tab = query.tab === "agreement"
+    ? "milestones"
+    : query.tab === "reputation"
+      ? "overview"
+      : tabs.includes(query.tab || "") ? query.tab! : "discussion";
   const [projectResult, membersResult, sidebarResult, scopesResult, profileResult, ownMembershipsResult] = await Promise.all([
     db.from("engagements").select("*").eq("id", id).single(),
     db.from("memberships").select("*").eq("engagement_id", id),
     db.from("engagements").select("id,title").order("created_at"),
-    tab === "agreement" || tab === "milestones"
+    tab === "milestones"
       ? db
           .from("scope_versions")
           .select("*")
@@ -155,10 +157,11 @@ export default async function Workspace({
           .select("*")
           .eq("engagement_id", id)
           .eq("visibility", visibility)
+          .eq("upload_status", "ready")
           .order("created_at", { ascending: false })
           .limit(1000)
       : { data: [] },
-    tab === "agreement" && scopes.length
+    tab === "milestones" && scopes.length
       ? db
           .from("approvals")
           .select("*")
@@ -201,7 +204,7 @@ export default async function Workspace({
           db
             .from("usage_operations")
             .select(
-              "id,status,charge_nano,provider_nano,usage_uncertain,created_at",
+              "id,status,charge_nano,usage_uncertain,created_at",
             )
             .eq("account_id", agent.summary.accountId)
             .order("created_at", { ascending: false })
@@ -289,7 +292,7 @@ export default async function Workspace({
         </nav>
         <div className="mt-12 text-xs muted hidden md:block">
           <LockKeyhole size={17} className="mb-3" />
-          Private assistants have separate histories and credit balances.
+          Private assistants have separate histories and token balances.
         </div>
       </aside>
       <main className="min-w-0">
@@ -340,17 +343,23 @@ export default async function Workspace({
                 href={`/workspace/${id}?tab=${t}`}
                 className={`capitalize pb-4 border-b-2 text-sm whitespace-nowrap ${tab === t ? "border-teal-800 text-teal-900 font-semibold" : "border-transparent muted"}`}
               >
-                {t === "credits" ? "AI credits" : t}
+                {t === "credits" ? "AI tokens" : t}
               </Link>
             ))}
           </nav>
         </header>
         <div className="p-5 lg:p-9 max-w-6xl mx-auto">
           <Notifications items={notices || []} />
+          {["completed", "cancelled"].includes(project.status) &&
+            project.accepted_version_id && tab !== "overview" && (
+              <p className="notice mb-6">
+                This engagement has ended. <Link className="underline" href="?tab=overview">View two-way feedback</Link> in Overview.
+              </p>
+            )}
           {project.funding === "pending" && (
             <p className="notice mb-6">
               This engagement is a private setup draft until an admin allocates
-              at least $5 of shared demo AI credits. PayPal credit checkout is
+              at least 50 shared demo AI tokens. PayPal checkout is
               not implemented; no purchase has been recorded.
             </p>
           )}
@@ -478,6 +487,7 @@ export default async function Workspace({
                             Mention {m.role}
                           </label>
                         ))}
+                    <MessageAttachmentPicker />
                     <textarea
                       id="body"
                       name="body"
@@ -506,10 +516,11 @@ export default async function Workspace({
                     setupReason={agent.setupReason}
                     runs={agent.runs}
                     userId={user.id}
+                    compact={visibility === "shared"}
                   />
                 ) : (
                   <div className="notice">
-                    Agent credit information could not be loaded. Human messages
+                    Agent token information could not be loaded. Human messages
                     remain available.
                   </div>
                 )}
@@ -566,46 +577,21 @@ export default async function Workspace({
                       )}
                     </div>
                   )}
-                <div className="panel">
-                  <h3 className="mention-option">
-                    <Paperclip size={16} />
-                    Attach a file
-                  </h3>
-                  <ActionForm actionName="upload" className="stack mt-4">
-                    <input type="hidden" name="id" value={id} />
-                    <input type="hidden" name="visibility" value={visibility} />
-                    <label htmlFor="upload">
-                      {visibility === "shared" ? "Shared file" : "Private file"}
-                    </label>
-                    <input
-                      id="upload"
-                      type="file"
-                      name="file"
-                      accept=".txt,.csv,.pdf,.png,.jpg,.jpeg"
-                      required
-                    />
-                    <small className="muted">
-                      Up to 20 MB. Text/CSV extraction is available. PDF and
-                      image analysis is not yet supported.
-                    </small>
-                    <Button variant="outline">Upload</Button>
-                  </ActionForm>
-                </div>
               </aside>
             </div>
           )}
-          {tab === "agreement" && (
+          {tab === "milestones" && (
             <div className="stack">
               <div
                 className="panel"
                 id={latest ? `version-${latest.id}` : undefined}
               >
-                <h2>Agreement history</h2>
+                <h2>Milestone agreement versions</h2>
                 <p className="muted my-3">
                   Both parties must formally approve the same current version.
                   Prior commitments and approval records are preserved.
                 </p>
-                {!latest && <p>No scope has been submitted yet.</p>}
+                {!latest && <p>No milestone agreement has been proposed yet.</p>}
                 {latest && (
                   <>
                     <div className="flex gap-3 mb-5">
@@ -681,7 +667,7 @@ export default async function Workspace({
               {["discussion", "active"].includes(project.status) && (
                 <details className="panel">
                   <summary className="font-semibold cursor-pointer">
-                    {latest ? "Propose a revision" : "Draft and submit scope"}
+                    {latest ? "Propose a revision" : "Draft milestone agreement"}
                   </summary>
                   <ActionForm actionName="scope" className="stack mt-6">
                     <input type="hidden" name="id" value={id} />
@@ -765,34 +751,21 @@ export default async function Workspace({
                   </ActionForm>
                 </details>
               )}
+              <MilestoneView
+                db={db}
+                id={id}
+                role={role}
+                latest={latest}
+                accepted={project.accepted_version_id}
+                status={project.status}
+              />
             </div>
-          )}
-          {tab === "milestones" && (
-            <MilestoneView
-              db={db}
-              id={id}
-              role={role}
-              latest={latest}
-              accepted={project.accepted_version_id}
-              status={project.status}
-            />
           )}
           {tab === "calendar" && (
             <CalendarView db={db} userId={user.id} e={id} />
           )}
           {tab === "concerns" && (
             <ConcernView db={db} engagementId={id} role={role} status={project.status} members={members} />
-          )}
-          {tab === "reputation" && (
-            <ReputationView
-              db={db}
-              id={id}
-              role={role}
-              userId={user.id}
-              accepted={project.accepted_version_id}
-              status={project.status}
-              isDemo={project.is_demo}
-            />
           )}
           {tab === "files" && (
             <FileList
@@ -849,6 +822,15 @@ export default async function Workspace({
                   <p className="mt-4">No successful summary refresh yet.</p>
                 )}
               </section>
+              <ReputationView
+                db={db}
+                id={id}
+                role={role}
+                userId={user.id}
+                accepted={project.accepted_version_id}
+                status={project.status}
+                isDemo={project.is_demo}
+              />
               {agent.summary && (
                 <AgentPanel
                   key="overview-shared"

@@ -15,9 +15,9 @@ Without Supabase configuration, the home and sign-in pages show an honest setup 
 
 ## Hackathon admin credits
 
-Set `ADMIN_EMAILS` in `.env.local` to the verified email address of each authorised admin (comma-separated). Restart the app, sign in with that account, and open `/admin` → **Users**. Each engagement shows its shared balance and that user's private balance. Enter an amount in USD credit value, choose Add or Remove, and provide a reason. Adjustments are promotional, append-only in the credit ledger, and do not create a purchase or payment. Removing credits can only consume available promotional units; reserved or purchased units are protected. Adding at least $5 to a pending shared balance activates that hackathon engagement. The admin page and action both enforce the server-side allowlist; never expose `SUPABASE_SECRET_KEY` to the browser.
+Set `ADMIN_EMAILS` in `.env.local` to the verified email address of each authorised admin (comma-separated). Restart the app, sign in with that account, and open `/admin` → **Users**. Each engagement shows its shared balance and that user's private balance. Enter Workspace tokens, choose Add or Remove, and provide a reason. Ten tokens equal $1 of AI usage value; the first-project grant is 50 shared tokens. Adjustments are promotional, append-only in the credit ledger, and do not create a purchase or payment. Removing tokens can only consume available promotional units; reserved or purchased units are protected. Adding at least 50 tokens to a pending shared balance activates that hackathon engagement. The admin page and action both enforce the server-side allowlist; never expose `SUPABASE_SECRET_KEY` to the browser.
 
-The balance is value for metered AI use, not a fixed token count. Real credit checkout remains future work.
+Workspace tokens are prepaid application usage units, not model input/output tokens or money held for professional payments. Real token checkout remains future work.
 
 ## Local repeatable demo
 

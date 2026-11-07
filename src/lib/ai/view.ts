@@ -1,5 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { adminDatabase } from "@/lib/supabase/admin";
 import { reservationBudget, type Price } from "./pricing";
 export async function agentView(db: SupabaseClient, e: string, v: string) {
   const [credit, runs, price] = await Promise.all([
@@ -12,7 +13,7 @@ export async function agentView(db: SupabaseClient, e: string, v: string) {
       .order("created_at", { ascending: false })
       .limit(8),
     process.env.OPENAI_MODEL
-      ? db
+      ? adminDatabase()
           .from("ai_pricing")
           .select("*")
           .eq("model", process.env.OPENAI_MODEL)
@@ -49,7 +50,7 @@ export async function agentView(db: SupabaseClient, e: string, v: string) {
     .filter((r) => r.status === "partial_offered")
     .map((r) => r.id);
   const metering = partialIds.length
-    ? await db
+    ? await adminDatabase()
         .from("usage_operations")
         .select("id,provider_nano")
         .in("id", partialIds)

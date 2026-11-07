@@ -22,8 +22,6 @@ const input = z.object({
   mode: agentModeSchema,
   question: z.string().trim().min(1).max(8000),
   operationKey: z.uuid(),
-  confirmedBudget: z.boolean(),
-  maximumChargeNano: z.string().regex(/^[0-9]{1,12}$/),
 });
 export async function POST(request: Request) {
   const allowedOrigin = new URL(process.env.NEXT_PUBLIC_APP_URL || request.url)
@@ -96,7 +94,8 @@ export async function POST(request: Request) {
       { error: "Agent context unavailable." },
       { status: 403 },
     );
-  const priceResult = await db
+  const admin = adminDatabase();
+  const priceResult = await admin
     .from("ai_pricing")
     .select("*")
     .eq("model", process.env.OPENAI_MODEL)
@@ -120,17 +119,6 @@ export async function POST(request: Request) {
       { status: 503 },
     );
   }
-  if (BigInt(value.maximumChargeNano) < budget)
-    return Response.json(
-      { error: "Pricing changed. Refresh and review the maximum charge." },
-      { status: 409 },
-    );
-  if (!value.confirmedBudget)
-    return Response.json(
-      { error: "Confirm the maximum charge before starting." },
-      { status: 400 },
-    );
-  const admin = adminDatabase();
   const hash = createHash("sha256")
     .update(
       JSON.stringify({
@@ -160,7 +148,7 @@ export async function POST(request: Request) {
       {
         error:
           message === "Insufficient credits"
-            ? "This agent has insufficient credits. Top up this balance to continue."
+            ? "This agent has insufficient tokens. Top up this balance to continue."
             : message === "AI rate limit reached"
               ? "AI rate limit reached. Please try later."
               : "The operation could not start. Refresh before retrying.",

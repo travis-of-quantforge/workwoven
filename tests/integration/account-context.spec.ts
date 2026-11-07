@@ -42,6 +42,10 @@ test("signup profile type and account switch drive dashboard and future engageme
     if (verified.error || !verified.data.user?.email_confirmed_at)
       throw new Error("Unable to verify account-context fixture");
     const userId = verified.data.user.id;
+    expect((await db.from("ai_pricing").select("id")).error).not.toBeNull();
+    expect((await db.from("usage_metering").select("id")).error).not.toBeNull();
+    expect((await db.from("usage_operations").select("provider_nano")).error).not.toBeNull();
+    expect((await db.from("usage_operations").select("id,charge_nano")).error).toBeNull();
     const context = await browser.newContext();
     try {
       const page: Page = await context.newPage();
