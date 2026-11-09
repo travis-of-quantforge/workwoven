@@ -40,6 +40,7 @@ export async function cleanupIntegrationRun(run, admin) {
   query(`begin;
  create temporary table fixture_users as select id from auth.users where raw_user_meta_data->>'workspace_test_run'='${run}';
  create temporary table fixture_engagements as select id from public.engagements where creator_id in(select id from fixture_users) and title like '[E2E]%';
+ delete from public.admin_activity where actor_id in(select id from fixture_users) or subject_id in(select id from fixture_users) or engagement_id in(select id from fixture_engagements);
  delete from public.notifications where engagement_id in(select id from fixture_engagements);
  delete from public.discussion_reads where engagement_id in(select id from fixture_engagements);
  delete from public.message_mentions where message_id in(select id from public.messages where engagement_id in(select id from fixture_engagements));

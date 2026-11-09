@@ -55,7 +55,10 @@ test("admin can allocate demo credits; another verified user cannot open admin",
     const adminEmail = process.env.ADMIN_TEST_EMAIL!;
     const otherEmail = `workspace-e2e-${run}-other@example.test`;
     const adminDb = await fixture(adminEmail);
-    await fixture(otherEmail);
+    const otherDb = await fixture(otherEmail);
+    const unverifiedEmail = `workspace-e2e-${run}-unverified@example.test`;
+    const unverified = await service.auth.admin.generateLink({ type: "signup", email: unverifiedEmail, password, options: { data: { workspace_test_run: run } } });
+    if (unverified.error || !unverified.data.user) throw new Error("Unable to create unverified fixture");
     const first = await adminDb.rpc("create_engagement", {
       p_title: `[E2E] Admin first ${run}`,
       p_role: "client",
@@ -66,23 +69,54 @@ test("admin can allocate demo credits; another verified user cannot open admin",
     });
     if (first.error || pending.error)
       throw new Error("Unable to create admin test engagements");
+    const token = await adminDb.rpc("create_invitation", { e: first.data, target_email: otherEmail });
+    const accepted = await otherDb.rpc("accept_invitation", { t: token.data });
+    if (token.error || accepted.error) throw new Error("Unable to join admin conversation fixture");
+    const adminUser = (await adminDb.auth.getUser()).data.user!;
+    const otherUser = (await otherDb.auth.getUser()).data.user!;
+    const seeded = await service.from("messages").insert([
+      { engagement_id: first.data, author_id: otherUser.id, visibility: "shared", body: "Shared admin conversation fixture" },
+      { engagement_id: first.data, author_id: otherUser.id, visibility: "professional", body: "Professional private admin fixture" },
+      { engagement_id: first.data, author_id: adminUser.id, visibility: "client", body: "Client private excluded fixture" },
+    ]);
+    if (seeded.error) throw new Error("Unable to seed admin conversations");
 
     const outsiderContext = await browser.newContext();
     const outsider = await outsiderContext.newPage();
     await signIn(outsider, otherEmail);
     await outsider.goto("/admin");
+    await expect(outsider.getByRole("heading", { name: "Admin sign in" })).toBeVisible();
+    await outsider.getByLabel("Email", { exact: true }).fill(otherEmail);
+    await outsider.getByLabel("Password", { exact: true }).fill(password);
+    await outsider.getByRole("button", { name: "Sign in", exact: true }).click();
+    await expect(outsider.getByRole("status")).toContainText("does not have admin access");
     await expect(outsider.getByText("Users and demo AI tokens")).toHaveCount(
       0,
     );
+    await outsider.goto(`/admin/users/${adminUser.id}/conversations?engagement=${first.data}`);
+    await expect(outsider.getByRole("heading", { name: "Admin sign in" })).toBeVisible();
+    await expect(outsider.getByRole("heading", { name: "User conversations" })).toHaveCount(0);
+    await expect(outsider.getByText("Shared admin conversation fixture")).toHaveCount(0);
     await outsiderContext.close();
 
     const adminContext = await browser.newContext();
     const page = await adminContext.newPage();
-    await signIn(page, adminEmail);
     await page.goto("/admin");
+    await expect(page).toHaveURL(/\/login\?next=/);
+    await expect(page.getByRole("heading", { name: "Admin sign in" })).toBeVisible();
+    await page.getByLabel("Email", { exact: true }).fill(adminEmail);
+    await page.getByLabel("Password", { exact: true }).fill(password);
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    await expect(page).toHaveURL("http://127.0.0.1:3200/admin");
     await expect(
       page.getByRole("heading", { name: "Users and demo AI tokens" }),
     ).toBeVisible();
+    const unverifiedCard = page.locator("section.panel").filter({ has: page.getByRole("heading", { name: unverifiedEmail, exact: true }) });
+    await expect(unverifiedCard.getByText("Email unverified", { exact: true })).toBeVisible();
+    await unverifiedCard.getByRole("button", { name: "Verify email", exact: true }).click();
+    await expect(unverifiedCard.getByText("Email verified", { exact: true }).first()).toBeVisible();
+    const verifiedAccount = await service.auth.admin.getUserById(unverified.data.user.id);
+    expect(verifiedAccount.data.user?.email_confirmed_at).toBeTruthy();
     const project = page
       .locator("section.panel > div")
       .filter({ hasText: `[E2E] Admin pending ${run}` })
@@ -113,9 +147,18 @@ test("admin can allocate demo credits; another verified user cannot open admin",
     expect(adjustment.error).toBeNull();
     expect(adjustment.data?.delta_nano).toBe(5000000000);
     expect(adjustment.data?.reason).toBe("Hackathon browser fixture");
+    await page.goto(`/admin/users/${otherUser.id}/conversations?engagement=${first.data}`);
+    await expect(page.getByText("Shared admin conversation fixture", { exact: true })).toBeVisible();
+    await expect(page.getByText("Professional private admin fixture", { exact: true })).toHaveCount(0);
+    await page.getByRole("link", { name: "User’s private conversation" }).click();
+    await expect(page.getByText("Professional private admin fixture", { exact: true })).toBeVisible();
+    await expect(page.getByText("Client private excluded fixture", { exact: true })).toHaveCount(0);
+    const activity = await service.from("admin_activity").select("action").eq("actor_id", adminUser.id);
+    expect(activity.error).toBeNull();
+    expect(activity.data?.map((a) => a.action)).toEqual(expect.arrayContaining(["verify_email_requested", "verify_email_completed", "view_shared_conversation", "view_private_conversation"]));
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(
-      page.getByRole("heading", { name: "Users and demo AI tokens" }),
+      page.getByRole("heading", { name: "User conversations" }),
     ).toBeVisible();
     expect(
       await page.evaluate(

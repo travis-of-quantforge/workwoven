@@ -1,5 +1,14 @@
 \set ON_ERROR_STOP on
 reset role;
+do $$begin
+ if has_table_privilege('authenticated','public.admin_activity','select')
+ or has_table_privilege('anon','public.admin_activity','select')
+ or has_table_privilege('authenticated','public.admin_activity','insert')
+ or has_table_privilege('service_role','public.admin_activity','update')
+ or has_table_privilege('service_role','public.admin_activity','delete') then
+  raise exception 'Admin activity permissions must be service-only and append-only';
+ end if;
+end $$;
 select id as private_account from public.agent_accounts
  where engagement_id=(select id from public.engagements where title='Reporting dashboard')
  and visibility='client' \gset

@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
 import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
+import { redirect } from "next/navigation";
 import { authenticated } from "@/lib/supabase/server";
 import { adminDatabase } from "@/lib/supabase/admin";
 import { isWorkspaceAdmin } from "@/lib/admin-access";
 import { formatTokens } from "@/lib/ai/pricing";
 import { CreditForm } from "./credit-form";
+import { VerificationForm } from "./verification-form";
 
 export const dynamic = "force-dynamic";
 
@@ -15,8 +16,7 @@ export default async function Admin({
   searchParams: Promise<{ page?: string }>;
 }) {
   const auth = await authenticated().catch(() => null);
-  if (!auth) redirect("/login");
-  if (!isWorkspaceAdmin(auth.user)) notFound();
+  if (!auth || !isWorkspaceAdmin(auth.user)) redirect("/login?next=/admin");
 
   const requested = Number((await searchParams).page || 1);
   const page = Number.isSafeInteger(requested) && requested > 0 ? requested : 1;
@@ -97,6 +97,9 @@ export default async function Admin({
                 <span className="muted text-xs">{user.email}</span>
               </div>
               <p className="muted mt-1 break-all text-xs">User ID: {user.id}</p>
+              <p className="mt-3 text-sm">{user.email_confirmed_at ? "Email verified" : "Email unverified"}</p>
+              {!user.email_confirmed_at && <VerificationForm userId={user.id} />}
+              <Link href={`/admin/users/${user.id}/conversations`} prefetch={false} className="mt-3 inline-block text-sm underline">View conversations</Link>
               {!memberRows.length && (
                 <p className="muted mt-4">No engagements yet.</p>
               )}
@@ -113,7 +116,8 @@ export default async function Admin({
                       <h3>
                         <Link
                           className="underline"
-                          href={`/workspace/${member.engagement_id}`}
+                          prefetch={false}
+                          href={`/admin/users/${user.id}/conversations?engagement=${member.engagement_id}`}
                         >
                           {project?.title || "Engagement"}
                         </Link>

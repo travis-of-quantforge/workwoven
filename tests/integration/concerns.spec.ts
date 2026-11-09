@@ -33,6 +33,7 @@ test("revoked invitation, mutual concern resolution, and accepted payment reques
     if (generated.error || !generated.data.properties)
       throw new Error("Unable to generate concern test account");
     const db = createClient(projectUrl, publicKey, options);
+    if (side === "professional") return { email, db };
     const verified = await db.auth.verifyOtp({
       token_hash: generated.data.properties.hashed_token,
       type: "signup",
@@ -64,29 +65,53 @@ test("revoked invitation, mutual concern resolution, and accepted payment reques
       const cp = await clientContext.newPage();
       const pp = await proContext.newPage();
       await signIn(cp, client.email);
-      await signIn(pp, professional.email);
       await cp.goto(`/workspace/${id}?tab=discussion`);
       await cp.getByLabel("Their email").fill(professional.email);
-      await cp.getByRole("button", { name: "Create invitation link" }).click();
+      await cp.getByRole("button", { name: "Send invitation" }).click();
       await expect(cp).toHaveURL(/invite=/);
       const revokedToken = new URL(cp.url()).searchParams.get("invite");
       expect(revokedToken).toBeTruthy();
-      await cp.getByRole("button", { name: "Revoke", exact: true }).click();
+      await expect(cp.getByText("Pending invitation", { exact: true })).toBeVisible();
+      await expect(cp.getByLabel("Their email")).toHaveCount(0);
+      await expect(cp.getByRole("button", { name: "Send invitation" })).toHaveCount(0);
+      await cp.getByRole("button", { name: "Revoke invitation", exact: true }).click();
       await expect(cp).toHaveURL(
         `http://127.0.0.1:3200/workspace/${id}?tab=discussion`,
       );
-      await pp.goto(`/invite/${revokedToken}`);
-      await pp.getByRole("button", { name: "Accept invitation" }).click();
-      await expect(pp.getByRole("alert")).toBeVisible();
+      await expect(cp.getByLabel("Their email")).toBeVisible();
+      await cp.goto(`/invite/${revokedToken}`);
+      await cp.getByRole("button", { name: "Accept invitation" }).click();
+      await expect(cp.getByRole("alert")).toBeVisible();
+      await cp.goto(`/workspace/${id}?tab=discussion`);
 
       await cp.getByLabel("Their email").fill(professional.email);
-      await cp.getByRole("button", { name: "Create invitation link" }).click();
+      await cp.getByRole("button", { name: "Send invitation" }).click();
       await expect(cp).toHaveURL(/invite=/);
       const freshToken = new URL(cp.url()).searchParams.get("invite");
       expect(freshToken).toBeTruthy();
+      await cp.goto(`/invite/${freshToken}`);
+      await cp.getByRole("button", { name: "Accept invitation" }).click();
+      await expect(cp).toHaveURL(/\/login\?mode=signup&invitation=/);
+      await expect(cp.getByRole("heading", { name: "Create your account" })).toBeVisible();
+      await expect(cp.getByRole("status")).toHaveCount(0);
+      await expect(cp.getByLabel("Email", { exact: true })).toHaveCount(0);
+      await cp.getByLabel("Password", { exact: true }).fill(password);
+      await cp.getByLabel("Confirm password", { exact: true }).fill(password + "typo");
+      await cp.getByRole("button", { name: "Create account", exact: true }).click();
+      await expect(cp.getByRole("status")).toContainText("Passwords do not match");
+      // Switching auth mode must preserve the invite without accepting it as the inviter.
+      await cp.getByRole("link", { name: "Sign in", exact: true }).click();
+      await expect(cp).toHaveURL(/mode=login&invitation=/);
       await pp.goto(`/invite/${freshToken}`);
       await pp.getByRole("button", { name: "Accept invitation" }).click();
+      await expect(pp).toHaveURL(/mode=signup&invitation=/);
+      await pp.getByLabel("Password", { exact: true }).fill(password);
+      await pp.getByLabel("Confirm password", { exact: true }).fill(password);
+      await pp.getByRole("button", { name: "Create account", exact: true }).click();
       await expect(pp).toHaveURL(`http://127.0.0.1:3200/workspace/${id}`);
+      const proLogin = await professional.db.auth.signInWithPassword({ email: professional.email, password });
+      expect(proLogin.error).toBeNull();
+      expect(proLogin.data.user?.email_confirmed_at).toBeTruthy();
 
       await cp.goto(`/workspace/${id}?tab=concerns`);
       await cp.getByText("Open a concern", { exact: true }).click();

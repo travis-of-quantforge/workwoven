@@ -95,7 +95,7 @@ test("two authenticated parties: grant, invite, private isolation, threads, file
     await expect(page).toHaveURL("http://127.0.0.1:3200/");
   }
   async function send(page: Page, body: string) {
-    await page.getByLabel("Message both parties", { exact: true }).fill(body);
+    await page.getByLabel("Message", { exact: true }).fill(body);
     await page
       .getByRole("button", { name: "Send message", exact: true })
       .click();
@@ -231,7 +231,7 @@ test("two authenticated parties: grant, invite, private isolation, threads, file
       .getByRole("link", { name: "Shared workspace", exact: true })
       .click();
     await expect(
-      cp.getByLabel("Message both parties", { exact: true }),
+      cp.getByLabel("Message", { exact: true }),
     ).toHaveValue("");
     await expect(cp.getByLabel("Your question", { exact: true })).toHaveValue(
       "",
@@ -260,10 +260,12 @@ test("two authenticated parties: grant, invite, private isolation, threads, file
     await send(cp, "We need weekly regional revenue totals from a CSV export.");
     await cp.getByLabel("Their email").fill(professional.email);
     await cp
-      .getByRole("button", { name: "Create invitation link", exact: true })
+      .getByRole("button", { name: "Send invitation", exact: true })
       .click();
     await expect(cp).toHaveURL(/invite=/);
     const inviteToken = new URL(cp.url()).searchParams.get("invite")!;
+    await expect(cp.getByLabel("Their email")).toHaveCount(0);
+    await expect(cp.getByRole("button", { name: "Send invitation" })).toHaveCount(0);
     const wrong = await outsider.db.rpc("accept_invitation", {
       t: inviteToken,
     });
@@ -542,7 +544,7 @@ test("two authenticated parties: grant, invite, private isolation, threads, file
       mimeType: "text/csv",
       buffer: Buffer.from("region,revenue\nSouth,1200\nNorth,800\n"),
     });
-    await cp.getByLabel("Message both parties", { exact: true })
+    await cp.getByLabel("Message", { exact: true })
       .fill("Here is the example revenue CSV for the dashboard.");
     await cp.getByRole("button", { name: "Send message", exact: true }).click();
     await expect(

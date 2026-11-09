@@ -1,10 +1,26 @@
 \set ON_ERROR_STOP on
+do $$begin
+ if has_function_privilege('authenticated','public.unverified_invited_user(text)','execute')
+ or has_function_privilege('anon','public.unverified_invited_user(text)','execute') then
+  raise exception 'Invitation auth lookup must remain service-only';
+ end if;
+end $$;
 reset role;
 set role authenticated;
 select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000002',false);
 select public.set_active_role('professional');
 select public.create_engagement('Concern and invitation fixture','professional') as engagement \gset
+select set_config('test.invite_engagement',:'engagement',false);
 select public.create_invitation(:'engagement','client@example.test') as revoked_token \gset
+do $$begin
+ begin
+  perform public.create_invitation(current_setting('test.invite_engagement')::uuid,'another@example.test');
+  raise exception 'Second active invitation allowed';
+ exception when others then
+  if sqlerrm<>'Revoke the pending invitation before creating another' then raise;end if;
+ end;
+ if (select count(*) from public.invitations where engagement_id=current_setting('test.invite_engagement')::uuid and revoked_at is null)<>1 then raise exception 'Pending invitation was changed';end if;
+end $$;
 reset role;
 select set_config('test.revoked_token',:'revoked_token',false);
 select id as invitation from public.invitations where engagement_id=:'engagement' \gset

@@ -5,6 +5,33 @@ import { authenticated } from "@/lib/supabase/server";
 import { adminDatabase } from "@/lib/supabase/admin";
 import { isWorkspaceAdmin } from "@/lib/admin-access";
 import { parseTokens, TOKEN_ATOMS } from "@/lib/ai/pricing";
+import { z } from "zod";
+
+export async function verifyUserEmail(
+  _previous: { error: string; success: boolean },
+  form: FormData,
+) {
+  const { user } = await authenticated();
+  if (!isWorkspaceAdmin(user)) throw new Error("Forbidden");
+  try {
+    const subject = z.uuid().parse(form.get("user"));
+    const service = adminDatabase();
+    const target = await service.auth.admin.getUserById(subject);
+    if (target.error || !target.data.user.email) throw new Error("User unavailable.");
+    if (!target.data.user.email_confirmed_at) {
+      const requested = await service.from("admin_activity").insert({ actor_id: user.id, subject_id: subject, action: "verify_email_requested" });
+      if (requested.error) throw new Error("Could not record verification. Please retry.");
+      const result = await service.auth.admin.updateUserById(subject, { email_confirm: true });
+      if (result.error) throw new Error("Email verification failed. Please retry.");
+      const completed = await service.from("admin_activity").insert({ actor_id: user.id, subject_id: subject, action: "verify_email_completed" });
+      if (completed.error) throw new Error("Email verified; completion log could not be saved.");
+    }
+    revalidatePath("/admin");
+    return { error: "", success: true };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "Verification failed.", success: false };
+  }
+}
 
 export async function adjustDemoCredits(
   _previous: { error: string; success: boolean },

@@ -12,6 +12,9 @@ import {
   actionErrorMessage,
 } from "@/lib/action-errors";
 import { localToUtc } from "@/lib/calendar";
+import { sendInvitationEmail } from "@/lib/invitation-email";
+import { activeInvitation } from "@/lib/invitations";
+import { isWorkspaceAdmin } from "@/lib/admin-access";
 import { milestonePlanSchema, changeSchema } from "@/lib/milestones";
 import { parseUsd, scopeSchema, visibilitySchema } from "@/lib/domain";
 const id = (f: FormData) => z.uuid().parse(f.get("id"));
@@ -23,27 +26,72 @@ async function command(name: string, args: Record<string, unknown>) {
 }
 export async function login(f: FormData) {
   const db = await database();
-  const email = z.email().parse(f.get("email"));
+  const invitation = z.string().regex(/^[a-f0-9]{64}$/).optional().parse(f.get("invitation") || undefined);
+  const invitationQuery = invitation ? `&invitation=${invitation}` : "";
+  const adminLogin = !invitation && f.get("next") === "/admin";
+  const nextQuery = adminLogin ? "&next=/admin" : "";
+  const invited = invitation ? await activeInvitation(invitation) : null;
+  if (invitation && !invited) redirect("/login?notice=This+invitation+is+no+longer+available.");
+  const email = invited ? invited.email : z.email().parse(f.get("email"));
   const password = z.string().min(8).max(128).parse(f.get("password"));
-  const signup = f.get("mode") === "signup";
+  const signup = !adminLogin && f.get("mode") === "signup";
+  if (signup && invitation && password !== f.get("confirmPassword"))
+    redirect(`/login?mode=signup${invitationQuery}&notice=Passwords+do+not+match.+Please+try+again.`);
   const profileType = signup
-    ? z.enum(["client", "professional"]).parse(f.get("profileType"))
+    ? invited?.role || z.enum(["client", "professional"]).parse(f.get("profileType"))
     : null;
+  if (signup && invited && invitation) {
+    const admin = adminDatabase();
+    const created = await admin.auth.admin.createUser({
+      email, password, email_confirm: true,
+      user_metadata: { profile_type: invited.role },
+    });
+    if (created.error) {
+      if (!["email_exists", "user_already_exists"].includes(created.error.code || ""))
+        redirect(`/login?mode=signup${invitationQuery}&notice=${encodeURIComponent(created.error.message)}`);
+      // Earlier versions may already have created an unconfirmed account.
+      // The valid emailed invite proves email access; never replace its password.
+      const pending = await admin.rpc("unverified_invited_user", { t: invitation });
+      if (pending.error) throw new WorkspaceActionError("Account setup could not be completed. Please retry.");
+      if (pending.data) {
+        const confirmed = await admin.auth.admin.updateUserById(pending.data, { email_confirm: true });
+        if (confirmed.error) throw new WorkspaceActionError("Account setup could not be completed. Please retry.");
+      } else {
+        redirect(`/login?mode=login${invitationQuery}&notice=If+you+already+have+an+account,+sign+in+with+your+existing+password.`);
+      }
+    }
+    const signedIn = await db.auth.signInWithPassword({ email, password });
+    if (signedIn.error) redirect(`/login?mode=login${invitationQuery}&notice=Sign+in+with+your+existing+password+to+continue.`);
+    const acceptance = new FormData();
+    acceptance.set("token", invitation);
+    await acceptInvite(acceptance);
+  }
   const { error } =
     signup
       ? await db.auth.signUp({
           email,
           password,
           options: {
-            emailRedirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback`,
+            emailRedirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback${invitation ? `?invitation=${invitation}` : ""}`,
             data: { profile_type: profileType },
           },
         })
       : await db.auth.signInWithPassword({ email, password });
-  if (error) redirect("/login?notice=" + encodeURIComponent(error.message));
+  if (error) redirect(`/login?mode=${signup ? "signup" : "login"}${invitationQuery}${nextQuery}&notice=` + encodeURIComponent(error.message));
+  if (adminLogin) {
+    const { data: { user } } = await db.auth.getUser();
+    if (!user || !isWorkspaceAdmin(user))
+      redirect("/login?next=/admin&notice=This+account+does+not+have+admin+access.+Sign+in+with+an+admin+account.");
+    redirect("/admin");
+  }
+  if (!signup && invitation) {
+    const acceptance = new FormData();
+    acceptance.set("token", invitation);
+    await acceptInvite(acceptance);
+  }
   redirect(
     signup
-      ? "/login?notice=Check+your+email+to+verify+your+account."
+      ? `/login?notice=Check+your+email+to+verify+your+account.${invitationQuery}`
       : "/",
   );
 }
@@ -135,11 +183,19 @@ export async function approveScope(f: FormData) {
 }
 export async function invite(f: FormData) {
   const e = id(f);
+  const email = z.email().parse(f.get("email"));
   const token = await command("create_invitation", {
     e,
-    target_email: z.email().parse(f.get("email")),
+    target_email: email,
   });
-  redirect(`/workspace/${e}?tab=discussion&invite=${token}`);
+  const { db } = await authenticated();
+  const { data: engagement } = await db
+    .from("engagements")
+    .select("title")
+    .eq("id", e)
+    .single();
+  const mail = await sendInvitationEmail(email, engagement?.title || "an engagement", token);
+  redirect(`/workspace/${e}?tab=discussion&invite=${token}&mail=${mail}`);
 }
 export async function revokeInvitation(f: FormData) {
   const e = id(f);
@@ -183,6 +239,17 @@ export async function createPaymentRequest(f: FormData) {
   revalidatePath(`/workspace/${e}`);
 }
 export async function acceptInvite(f: FormData) {
+  const token = z.string().regex(/^[a-f0-9]{64}$/).parse(f.get("token"));
+  const session = await database();
+  const { data: { user: currentUser } } = await session.auth.getUser();
+  if (!currentUser?.email_confirmed_at)
+    redirect(`/login?mode=signup&invitation=${token}`);
+  // A browser may still be signed in as the inviter or another account.
+  // Only inspect the invitation identified by the secret link; the RPC below
+  // independently enforces email, expiry, membership and single-use rules.
+  const invitation = await activeInvitation(token);
+  if (invitation && invitation.email.toLowerCase() !== currentUser.email?.toLowerCase())
+    redirect(`/login?mode=signup&invitation=${token}`);
   const { db, user } = await authenticated();
   const e = await command("accept_invitation", {
     t: z

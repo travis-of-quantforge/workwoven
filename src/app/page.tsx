@@ -78,10 +78,10 @@ export default async function Home() {
             ? activeRole === "client"
               ? "Develop a brief, invite a professional, and review work together."
               : "Plan delivery, invite a client, and keep the shared agreement clear."
-            : "From the first conversation to the final delivery. Keep decisions, agreements and the people behind them connected."}
+            : "A shared workspace for clients and professionals. Discuss ideas, share files, agree on milestones and manage delivery together, with AI assistants to help along the way."}
         </p>
       </div>
-      {!configured() && (
+      {user && !configured() && (
         <div className="notice mb-7">
           <strong>Connect your workspace</strong>
           <p>
@@ -92,7 +92,7 @@ export default async function Home() {
         </div>
       )}
       {user && <Notifications items={notices || []} />}
-      <div className="space-y-7">
+      {user && <div className="space-y-7">
         <div className="panel mx-auto w-full max-w-xl py-10">
           <div className="text-center">
             <MessageSquare className="mx-auto mb-5 text-teal-700" size={30} />
@@ -120,13 +120,7 @@ export default async function Home() {
               You will join as the {activeRole}. You can invite the{" "}
               {activeRole === "client" ? "professional" : "client"} after creation.
             </p>
-            {user ? (
-              <Button>Create engagement</Button>
-            ) : (
-              <Button asChild>
-                <Link href="/login">Sign in to create</Link>
-              </Button>
-            )}
+            <Button>Create engagement</Button>
           </ActionForm>
           <div className="border-t border-slate-100 mt-6 pt-5 flex gap-2 text-xs muted">
             <ShieldCheck size={18} />
@@ -159,7 +153,7 @@ export default async function Home() {
             </Link>
           ))}
         </section>
-      </div>
+      </div>}
     </div>
   );
 }

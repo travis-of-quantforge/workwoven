@@ -27,6 +27,7 @@ export default defineConfig({
     timeout: 60000,
     env: {
       AI_ENABLED: "false",
+      BREVO_API_KEY: "",
       ADMIN_EMAILS: fixtureEmail,
       NEXT_DIST_DIR: ".next-integration",
       NEXT_PUBLIC_APP_URL: "http://127.0.0.1:3200",

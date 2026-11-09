@@ -44,6 +44,7 @@ export function databaseActionError(code: string, message: string) {
     "Delivery review already recorded",
     "Review the latest delivery against the current accepted milestone",
     "Party already joined",
+    "Revoke the pending invitation before creating another",
     "Stale version; refresh before submitting",
     "Cannot approve a superseded version",
     "Invitation unavailable for this account",

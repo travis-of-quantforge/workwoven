@@ -48,6 +48,7 @@ export default async function Workspace({
     tab?: string;
     context?: string;
     invite?: string;
+    mail?: string;
     message?: string;
     page?: string;
   }>;
@@ -116,8 +117,9 @@ export default async function Workspace({
           .eq("engagement_id", id)
           .is("accepted_at", null)
           .is("revoked_at", null)
+          .gt("expires_at", new Date().toISOString())
           .order("expires_at", { ascending: false })
-          .limit(5)
+          .limit(1)
       : { data: [] },
     ["discussion", "overview", "credits"].includes(tab)
       ? agentView(db, id, tab === "overview" ? "shared" : visibility)
@@ -186,6 +188,7 @@ export default async function Workspace({
       : { data: null },
   ]);
   const pendingInvitations = invitationResult.data;
+  const invitationError = "error" in invitationResult ? invitationResult.error : null;
   const recentMessages = messagesResult.data;
   const messagesError = messagesResult.error;
   const files = filesResult.data;
@@ -468,9 +471,9 @@ export default async function Workspace({
                   <ActionForm actionName="message" className="mt-6">
                     <input type="hidden" name="id" value={id} />
                     <input type="hidden" name="visibility" value={visibility} />
-                    <label htmlFor="body">
+                    <label htmlFor="body" className={visibility === "shared" ? "sr-only" : undefined}>
                       {visibility === "shared"
-                        ? "Message both parties"
+                        ? "Message"
                         : "Private note · never shown to the counterparty"}
                     </label>
                     {visibility === "shared" &&
@@ -531,49 +534,49 @@ export default async function Workspace({
                       <h3>Invite your counterpart</h3>
                       <p className="muted text-xs my-3">
                         They will see all shared content after joining. Private
-                        material stays private. No email is sent.
+                        material stays private. With email configured, we send the invitation to their address.
                       </p>
-                      <ActionForm actionName="invite" className="stack">
-                        <input type="hidden" name="id" value={id} />
-                        <label htmlFor="invite-email">Their email</label>
-                        <input
-                          type="email"
-                          id="invite-email"
-                          name="email"
-                          required
-                        />
-                        <Button
-                          variant="outline"
-                          disabled={project.funding !== "funded"}
-                        >
-                          Create invitation link
-                        </Button>
-                      </ActionForm>
-                      {query.invite && (
-                        <p className="mt-4 break-all text-xs">
-                          <a
-                            className="underline"
-                            href={`/invite/${query.invite}`}
-                          >
-                            {process.env.NEXT_PUBLIC_APP_URL}/invite/
-                            {query.invite}
-                          </a>
+                      {invitationError ? (
+                        <p role="alert" className="notice text-sm">
+                          Invitation status could not be loaded. Refresh to retry.
                         </p>
-                      )}
-                      {!!pendingInvitations?.length && (
-                        <div className="mt-5 border-t border-slate-200 pt-4">
-                          <h4 className="font-medium">Pending invitations</h4>
-                          {pendingInvitations.map((invitation) => (
-                            <div key={invitation.id} className="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm">
-                              <p>{invitation.email} · {invitation.role} · expires {new Date(invitation.expires_at).toLocaleString("en-GB", { timeZone: "UTC" })} UTC</p>
-                              <ActionForm actionName="revoke-invite">
-                                <input type="hidden" name="id" value={id} />
-                                <input type="hidden" name="invitation" value={invitation.id} />
-                                <Button variant="outline">Revoke</Button>
-                              </ActionForm>
-                            </div>
-                          ))}
+                      ) : pendingInvitations?.[0] ? (
+                        <div className="border-t border-slate-200 pt-4">
+                          <h4 className="font-medium">Pending invitation</h4>
+                          <p className="text-sm mt-3">
+                            {pendingInvitations[0].email} · expires {new Date(pendingInvitations[0].expires_at).toLocaleString("en-GB", { timeZone: "UTC" })} UTC
+                          </p>
+                          {query.invite && query.mail === "submitted" && (
+                            <p className="notice mt-3 text-sm">Invitation to {pendingInvitations[0].email} sent.</p>
+                          )}
+                          {query.invite && query.mail === "unconfigured" && (
+                            <p className="notice mt-3 text-sm">Email delivery is not configured. Copy and share the link below.</p>
+                          )}
+                          {query.invite && query.mail === "failed" && (
+                            <p role="alert" className="notice mt-3 text-sm">Brevo did not accept this email. The invitation is still active; copy and share the link below.</p>
+                          )}
+                          {query.invite && (
+                            <p className="mt-4 break-all text-xs">
+                              <a className="underline" href={`/invite/${query.invite}`}>
+                                {process.env.NEXT_PUBLIC_APP_URL}/invite/{query.invite}
+                              </a>
+                            </p>
+                          )}
+                          <ActionForm actionName="revoke-invite" className="mt-4">
+                            <input type="hidden" name="id" value={id} />
+                            <input type="hidden" name="invitation" value={pendingInvitations[0].id} />
+                            <Button variant="outline">Revoke invitation</Button>
+                          </ActionForm>
                         </div>
+                      ) : (
+                        <ActionForm actionName="invite" className="stack">
+                          <input type="hidden" name="id" value={id} />
+                          <label htmlFor="invite-email">Their email</label>
+                          <input type="email" id="invite-email" name="email" required />
+                          <Button variant="outline" disabled={project.funding !== "funded"}>
+                            Send invitation
+                          </Button>
+                        </ActionForm>
                       )}
                     </div>
                   )}
