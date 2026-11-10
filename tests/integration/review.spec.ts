@@ -100,7 +100,7 @@ test("completion transition preserves review form and publishes only after both 
       await page.getByLabel("Password", { exact: true }).fill(password);
       await page.getByRole("button", { name: "Sign in", exact: true }).click();
       await expect(page).toHaveURL("http://127.0.0.1:3200/");
-      await page.goto(`/workspace/${e}?tab=overview`);
+      await page.goto(`/workspace/${e}?tab=discussion`);
       await expect(page.getByRole("link", { name: "reputation", exact: true })).toHaveCount(0);
     }
     const [cp, pp] = pages;
@@ -110,6 +110,7 @@ test("completion transition preserves review form and publishes only after both 
       [pp, "professional"],
     ] as const) {
       if (role === "professional") await page.reload();
+      await page.getByText("Finish engagement", { exact: true }).first().click();
       await page
         .getByLabel("Outcome reason", { exact: true })
         .fill("The accepted work has been completed and handed over.");

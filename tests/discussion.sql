@@ -18,6 +18,7 @@ select public.post_discussion_message(:'engagement','shared','Yes, a UTF-8 CSV i
 select public.mark_discussion_read(:'engagement',:'reply');
 do $$ begin
  if not exists(select 1 from public.discussion_reads where engagement_id=current_setting('test.engagement')::uuid) then raise exception 'Read marker missing'; end if;
+ if exists(select 1 from public.notifications where engagement_id=current_setting('test.engagement')::uuid and kind in ('message','mention','reply') and seen_at is null) then raise exception 'Read messages retain unread notifications';end if;
  begin perform public.post_discussion_message(current_setting('test.engagement')::uuid,'professional','private',null,array['00000000-0000-0000-0000-000000000001'::uuid]); raise exception 'Private mention allowed';
  exception when raise_exception then if sqlerrm='Private mention allowed' then raise;end if;end;
 end $$;

@@ -57,6 +57,10 @@ export async function cleanupIntegrationRun(run, admin) {
  delete from public.concern_acknowledgements where case_id in(select id from public.concern_cases where engagement_id in(select id from fixture_engagements));
  delete from public.concern_updates where case_id in(select id from public.concern_cases where engagement_id in(select id from fixture_engagements));
  delete from public.concern_cases where engagement_id in(select id from fixture_engagements);
+ delete from public.payment_ledger where engagement_id in(select id from fixture_engagements);
+ delete from public.payment_refunds where engagement_id in(select id from fixture_engagements);
+ delete from public.payment_transactions where engagement_id in(select id from fixture_engagements);
+ delete from public.paypal_sellers where user_id in(select id from fixture_users);
  delete from public.payment_requests where engagement_id in(select id from fixture_engagements);
  delete from public.badge_awards where engagement_id in(select id from fixture_engagements);
  delete from public.meeting_notes where version_id in(select v.id from public.meeting_versions v join public.meetings m on m.id=v.meeting_id where m.engagement_id in(select id from fixture_engagements));
@@ -69,6 +73,12 @@ export async function cleanupIntegrationRun(run, admin) {
  delete from public.delivery_submissions where task_id in(select id from public.milestone_tasks where engagement_id in(select id from fixture_engagements));
  delete from public.task_progress where task_id in(select id from public.milestone_tasks where engagement_id in(select id from fixture_engagements));
  delete from public.task_dependencies where version_id in(select id from public.scope_versions where engagement_id in(select id from fixture_engagements));
+ delete from public.milestone_events where milestone_id in(select id from public.milestones where engagement_id in(select id from fixture_engagements));
+ delete from public.milestone_operations where engagement_id in(select id from fixture_engagements);
+ update public.milestones set latest_version_id=null,accepted_version_id=null where engagement_id in(select id from fixture_engagements);
+ delete from public.milestone_approvals where version_id in(select v.id from public.milestone_versions v join public.milestones m on m.id=v.milestone_id where m.engagement_id in(select id from fixture_engagements));
+ delete from public.milestone_versions where milestone_id in(select id from public.milestones where engagement_id in(select id from fixture_engagements));
+ delete from public.milestones where engagement_id in(select id from fixture_engagements);
  delete from public.milestone_tasks where engagement_id in(select id from fixture_engagements);
  delete from public.approvals where version_id in(select id from public.scope_versions where engagement_id in(select id from fixture_engagements));
  update public.engagements set accepted_version_id=null where id in(select id from fixture_engagements);

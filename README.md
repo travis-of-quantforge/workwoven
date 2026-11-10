@@ -11,7 +11,9 @@ A Next.js / Supabase engagement workspace. This is a set of working vertical sli
 5. Enable Postgres Changes for `messages` (the migration adds the publication). Table RLS controls event delivery. Storage uses the private `engagement-files` bucket created by the migration.
 6. Run `npm run dev`. Sign up, choose a starting Client or Freelancer / professional profile type, and confirm your email. The account menu switches the active context. Create a project in that context, invite the counterparty by email or share the generated link, then accept from a separate verified account/browser profile. Accepting an invitation selects its role in the account menu. Switching context changes the dashboard and role for future projects; existing project memberships retain their original roles and permissions.
 
-Without Supabase configuration, the home and sign-in pages show an honest setup state. They do not fabricate accounts or projects. Provider configuration is described in docs/PROVIDERS.md. PayPal checkout remains unfinished.
+Without Supabase configuration, the home and sign-in pages show an honest setup state. They do not fabricate accounts or projects. Provider configuration is described in docs/PROVIDERS.md. Sandbox payment/ledger/refund code is implemented; real seller onboarding, checkout and webhook validation remain pending setup. Live payments are disabled.
+
+Development output uses `.next-dev`; production builds use `.next`, so running a build cannot overwrite the live development server's client chunks. Test configurations can still set their own `NEXT_DIST_DIR`.
 
 ## Hackathon admin credits
 

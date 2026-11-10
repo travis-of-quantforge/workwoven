@@ -1,10 +1,12 @@
 import { z } from "zod";
+import { milestoneSuggestionSchema } from "../milestones";
 export const agentModeSchema = z.enum([
   "advice",
   "scope",
   "change",
   "summary",
   "meeting",
+  "milestones",
 ]);
 export const evidenceSchema = z.object({
   ref: z.string(),
@@ -72,7 +74,14 @@ export const agentResultSchema = z.object({
     .nullable(),
 });
 export type AgentResult = z.infer<typeof agentResultSchema>;
+export const milestoneAgentResultSchema = agentResultSchema.extend({
+  milestones: z.array(milestoneSuggestionSchema).max(30).nullable(),
+  proposal: z.null(),
+  summary: z.null(),
+});
 export function validateGrounding(result: AgentResult, evidence: Evidence[]) {
+  if (result.kind === "milestones" && "milestones" in result && Array.isArray(result.milestones) && result.milestones.length && !result.citations.length)
+    throw new Error("Milestone descriptions require supporting evidence");
   const allowed = new Map(evidence.map((e) => [e.ref, e]));
   for (const citation of result.citations)
     if (
@@ -81,7 +90,7 @@ export function validateGrounding(result: AgentResult, evidence: Evidence[]) {
     )
       throw new Error("Unsupported evidence reference");
   if (
-    ["change", "summary"].includes(result.kind) &&
+    ["change", "summary", "milestones"].includes(result.kind) &&
     evidence.some((e) => e.kind === "agreement" && e.state === "agreed") &&
     !result.citations.some((c) =>
       evidence.some((e) => e.ref === c.ref && e.state === "agreed"),
@@ -135,6 +144,9 @@ export function partialAnswer(snapshot: string) {
 export function resultBody(result: AgentResult) {
   return [
     result.answer,
+    result.kind === "milestones" && "milestones" in result && Array.isArray(result.milestones)
+      ? "Draft milestones (require human review):\n" + JSON.stringify(result.milestones)
+      : "",
     result.proposal
       ? `Proposal: ${result.proposal.title}\n${result.proposal.description}\nCost impact: ${result.proposal.costImpact}\nSchedule impact: ${result.proposal.scheduleImpact}\nRequires human review and formal approval.`
       : "",

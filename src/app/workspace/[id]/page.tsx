@@ -2,14 +2,15 @@ import { z } from "zod";
 import { FileList } from "@/components/file-list";
 import { ReputationView } from "@/components/reputation-view";
 import { CalendarView } from "@/components/calendar-view";
-import { MilestoneView } from "@/components/milestone-view";
-import { ScopeDetails, ScopeComparison } from "@/components/scope-details";
+import { IndividualMilestones } from "@/components/individual-milestones";
+import { MilestoneProposal } from "@/components/milestone-proposal";
 import { AgentPanel, AgentAdvice } from "@/components/agent-panel";
 import { CreditView } from "@/components/credit-view";
 import { agentView } from "@/lib/ai/view";
 import { agentResultSchema } from "@/lib/ai/contracts";
 import { ActionForm } from "@/components/action-form";
 import { ThreadedMessages } from "@/components/threaded-messages";
+import { DiscussionReadTracker } from "@/components/discussion-read-tracker";
 import { MessageAttachmentPicker } from "@/components/message-attachment-picker";
 import { Notifications } from "@/components/notifications";
 import { AccountMenu } from "@/components/account-menu";
@@ -23,7 +24,6 @@ import {
   ArrowLeft,
   LockKeyhole,
   MessageSquare,
-  CheckCircle2,
 } from "lucide-react";
 import { authenticated } from "@/lib/supabase/server";
 import { Button } from "@/components/ui/button";
@@ -31,7 +31,6 @@ import { LiveMessages } from "@/components/live-messages";
 import { ShareDraft } from "@/components/share-draft";
 const tabs = [
   "discussion",
-  "overview",
   "milestones",
   "files",
   "calendar",
@@ -51,6 +50,10 @@ export default async function Workspace({
     mail?: string;
     message?: string;
     page?: string;
+    version?: string;
+    checkout?: string;
+    cancelled?: string;
+    ledger_page?: string;
   }>;
 }) {
   const { id } = await params;
@@ -62,22 +65,15 @@ export default async function Workspace({
     redirect("/login");
   }
   const { db, user } = auth;
-  const tab = query.tab === "agreement"
+  const tab = query.tab === "agreement" || query.tab === "milestones"
     ? "milestones"
     : query.tab === "reputation"
-      ? "overview"
+      ? "discussion"
       : tabs.includes(query.tab || "") ? query.tab! : "discussion";
-  const [projectResult, membersResult, sidebarResult, scopesResult, profileResult, ownMembershipsResult] = await Promise.all([
+  const [projectResult, membersResult, sidebarResult, profileResult, ownMembershipsResult] = await Promise.all([
     db.from("engagements").select("*").eq("id", id).single(),
     db.from("memberships").select("*").eq("engagement_id", id),
     db.from("engagements").select("id,title").order("created_at"),
-    tab === "milestones"
-      ? db
-          .from("scope_versions")
-          .select("*")
-          .eq("engagement_id", id)
-          .order("number", { ascending: false })
-      : { data: [] },
     db.from("profiles").select("active_role").eq("id", user.id).maybeSingle(),
     db.from("memberships").select("engagement_id,role").eq("user_id", user.id),
   ]);
@@ -90,8 +86,6 @@ export default async function Workspace({
   const sidebarProjects = sidebarResult.data?.filter((p) =>
     p.id === id || ownMembershipsResult.data?.some((m) => m.engagement_id === p.id && m.role === activeRole),
   );
-  const scopes = scopesResult.data || [];
-  const latest = scopes[0];
   const visibility = query.context === "private" ? role : "shared";
   const pageNumber = Math.min(
     1000,
@@ -105,7 +99,6 @@ export default async function Workspace({
     summaryRun,
     messagesResult,
     filesResult,
-    allApprovals,
     noticesResult,
     readResult,
   ] = await Promise.all([
@@ -121,9 +114,9 @@ export default async function Workspace({
           .order("expires_at", { ascending: false })
           .limit(1)
       : { data: [] },
-    ["discussion", "overview", "credits"].includes(tab)
-      ? agentView(db, id, tab === "overview" ? "shared" : visibility)
-      : { summary: null, budgetNano: null, setupReason: null, runs: [] },
+    ["discussion", "milestones", "credits"].includes(tab)
+      ? agentView(db, id, tab === "milestones" ? "shared" : visibility)
+      : { summary: null, budgetNano: null, setupReason: null, runs: [], conversation: [] },
     tab === "credits"
       ? db
           .from("credit_policy_versions")
@@ -131,7 +124,7 @@ export default async function Workspace({
           .eq("enabled", true)
           .single()
       : { data: null },
-    tab === "overview"
+    tab === "discussion"
       ? db
           .from("agent_runs")
           .select("result,created_at,finished_at")
@@ -149,6 +142,7 @@ export default async function Workspace({
           .select("*")
           .eq("engagement_id", id)
           .eq("visibility", visibility)
+          .eq("channel", "discussion")
           .order("created_at", { ascending: false })
           .order("id", { ascending: false })
           .range(pageNumber * 200, pageNumber * 200 + 199)
@@ -162,15 +156,6 @@ export default async function Workspace({
           .eq("upload_status", "ready")
           .order("created_at", { ascending: false })
           .limit(1000)
-      : { data: [] },
-    tab === "milestones" && scopes.length
-      ? db
-          .from("approvals")
-          .select("*")
-          .in(
-            "version_id",
-            scopes.map((s) => s.id),
-          )
       : { data: [] },
     db
       .from("notifications")
@@ -221,6 +206,7 @@ export default async function Workspace({
         ])
       : null;
   let messages = recentMessages || [];
+  let agentEvidenceMessage: { id: string; kind: string; body: string; created_at: string; author_id: string } | null = null;
   if (tab === "discussion" &&
     z.uuid().safeParse(query.message).success &&
     !messages.some((m) => m.id === query.message)
@@ -232,11 +218,15 @@ export default async function Workspace({
       .eq("engagement_id", id)
       .eq("visibility", visibility)
       .maybeSingle();
-    if (target.data)
+    if (target.data?.channel === "agent") agentEvidenceMessage = target.data;
+    else if (target.data)
       messages = [...messages, target.data].sort((a, b) =>
         b.created_at.localeCompare(a.created_at),
       );
   }
+  const milestoneEvents = tab === "discussion" && visibility === "shared" && messages.length
+    ? await db.from("milestone_events").select("message_id,milestone_id,version_id,event").in("message_id", messages.map(m => m.id))
+    : { data: [] };
   const fileIds = (files || []).map((f) => f.id);
   const fileExtras =
     tab === "files" && fileIds.length
@@ -251,9 +241,6 @@ export default async function Workspace({
             .eq("attachments.visibility", visibility),
         ])
       : null;
-  const approvals = (allApprovals.data || []).filter(
-    (a) => a.version_id === latest?.id,
-  );
   const { count: unread } =
     tab === "discussion"
       ? await db
@@ -261,6 +248,7 @@ export default async function Workspace({
           .select("id", { count: "exact", head: true })
           .eq("engagement_id", id)
           .eq("visibility", "shared")
+          .eq("channel", "discussion")
           .neq("author_id", user.id)
           .gt("created_at", read?.last_read_at || "1970-01-01T00:00:00Z")
       : { count: 0 };
@@ -350,13 +338,14 @@ export default async function Workspace({
               </Link>
             ))}
           </nav>
+          {["discussion", "active"].includes(project.status) && <details className="my-4"><summary className="cursor-pointer text-sm">Finish engagement</summary><ReputationView db={db} id={id} role={role} userId={user.id} accepted={project.accepted_version_id} status={project.status} isDemo={project.is_demo} /></details>}
         </header>
         <div className="p-5 lg:p-9 max-w-6xl mx-auto">
           <Notifications items={notices || []} />
           {["completed", "cancelled"].includes(project.status) &&
-            project.accepted_version_id && tab !== "overview" && (
+            project.accepted_version_id && tab !== "discussion" && (
               <p className="notice mb-6">
-                This engagement has ended. <Link className="underline" href="?tab=overview">View two-way feedback</Link> in Overview.
+                This engagement has ended. <Link className="underline" href="?tab=discussion">View two-way feedback</Link> in Discussion.
               </p>
             )}
           {project.funding === "pending" && (
@@ -409,19 +398,6 @@ export default async function Workspace({
                       <p className="muted text-xs">
                         {unread || 0} unread shared messages
                       </p>
-                      {messages?.[0] && (
-                        <ActionForm actionName="read">
-                          <input type="hidden" name="id" value={id} />
-                          <input
-                            type="hidden"
-                            name="lastMessage"
-                            value={messages[0].id}
-                          />
-                          <Button variant="outline">
-                            Mark discussion read
-                          </Button>
-                        </ActionForm>
-                      )}
                     </div>
                   )}
                   {messagesError && (
@@ -467,7 +443,11 @@ export default async function Workspace({
                     userId={user.id}
                     members={members}
                     files={files || []}
+                    milestoneEvents={milestoneEvents.data || []}
                   />
+                  {visibility === "shared" && !query.message && pageNumber === 0 && !messagesError && !!unread && messages?.[0] && (
+                    <DiscussionReadTracker engagementId={id} lastMessage={messages[0].id} />
+                  )}
                   <ActionForm actionName="message" className="mt-6">
                     <input type="hidden" name="id" value={id} />
                     <input type="hidden" name="visibility" value={visibility} />
@@ -476,20 +456,6 @@ export default async function Workspace({
                         ? "Message"
                         : "Private note · never shown to the counterparty"}
                     </label>
-                    {visibility === "shared" &&
-                      members
-                        .filter((m) => m.user_id !== user.id)
-                        .map((m) => (
-                          <label key={m.user_id} className="mention-option">
-                            <input
-                              className="w-auto"
-                              type="checkbox"
-                              name="mention"
-                              value={m.user_id}
-                            />
-                            Mention {m.role}
-                          </label>
-                        ))}
                     <MessageAttachmentPicker />
                     <textarea
                       id="body"
@@ -509,6 +475,17 @@ export default async function Workspace({
                 {visibility !== "shared" && <ShareDraft id={id} />}
               </div>
               <aside className="stack content-start">
+                {visibility === "shared" && <MilestoneProposal
+                  key={id}
+                  engagementId={id}
+                  expected={null}
+                  base={null}
+                  initial={[]}
+                  aiUnavailable={agent.setupReason || (!agent.summary || !agent.budgetNano || BigInt(agent.summary.availableNano) < BigInt(agent.budgetNano) ? "The shared agent needs sufficient tokens to draft milestones." : null)}
+                  disabled={project.funding !== "funded" || !["discussion", "active"].includes(project.status)}
+                />}
+                <details open={visibility !== "shared" || !!agentEvidenceMessage}>
+                <summary className="cursor-pointer rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm font-medium">{visibility === "shared" ? "Chat with the project agent" : "Your private assistant"}</summary>
                 {agent.summary ? (
                   <AgentPanel
                     key={visibility}
@@ -518,6 +495,7 @@ export default async function Workspace({
                     budgetNano={agent.budgetNano}
                     setupReason={agent.setupReason}
                     runs={agent.runs}
+                    conversation={agent.conversation && [...agent.conversation, ...(agentEvidenceMessage && !agent.conversation.some((message) => message.id === agentEvidenceMessage!.id) ? [agentEvidenceMessage] : [])].sort((a, b) => a.created_at.localeCompare(b.created_at))}
                     userId={user.id}
                     compact={visibility === "shared"}
                   />
@@ -527,6 +505,8 @@ export default async function Workspace({
                     remain available.
                   </div>
                 )}
+                {visibility === "shared" && parsedSummary.success && <details className="panel mt-3"><summary className="cursor-pointer">Project summary</summary><p className="muted text-xs mt-3">Last refreshed: {summaryRun.data?.finished_at || summaryRun.data?.created_at}. This summary is not an agreement.</p><AgentAdvice id={id} result={parsedSummary.data} /></details>}
+                </details>
                 {visibility === "shared" &&
                   members.length < 2 &&
                   ["discussion", "active"].includes(project.status) && (
@@ -583,187 +563,9 @@ export default async function Workspace({
               </aside>
             </div>
           )}
-          {tab === "milestones" && (
-            <div className="stack">
-              <div
-                className="panel"
-                id={latest ? `version-${latest.id}` : undefined}
-              >
-                <h2>Milestone agreement versions</h2>
-                <p className="muted my-3">
-                  Both parties must formally approve the same current version.
-                  Prior commitments and approval records are preserved.
-                </p>
-                {!latest && <p>No milestone agreement has been proposed yet.</p>}
-                {latest && (
-                  <>
-                    <div className="flex gap-3 mb-5">
-                      <span className="badge">Version {latest.number}</span>
-                      <span className="badge">
-                        {project.accepted_version_id === latest.id
-                          ? "Accepted"
-                          : "Proposed"}
-                      </span>
-                    </div>
-                    <ScopeDetails content={latest.content} />
-                    {project.accepted_version_id &&
-                      project.accepted_version_id !== latest.id && (
-                        <ScopeComparison
-                          accepted={
-                            scopes.find(
-                              (s) => s.id === project.accepted_version_id,
-                            )?.content || {}
-                          }
-                          proposed={latest.content}
-                        />
-                      )}
-                    <div className="border-t border-slate-200 mt-6 pt-5">
-                      <p className="mb-4">
-                        Approvals:{" "}
-                        {approvals?.map((a) => a.role).join(", ") || "None"}
-                      </p>
-                      <ActionForm actionName="approve">
-                        <input type="hidden" name="id" value={id} />
-                        <input type="hidden" name="version" value={latest.id} />
-                        <Button
-                          disabled={
-                            !["discussion", "active"].includes(
-                              project.status,
-                            ) || approvals?.some((a) => a.user_id === user.id)
-                          }
-                        >
-                          <CheckCircle2 size={16} />
-                          Approve version {latest.number} as {role}
-                        </Button>
-                      </ActionForm>
-                    </div>
-                  </>
-                )}
-                {scopes.slice(1).map((s) => (
-                  <details
-                    key={s.id}
-                    id={`version-${s.id}`}
-                    className="mt-6 border-t pt-4"
-                  >
-                    <summary>
-                      Historical version {s.number}
-                      {project.accepted_version_id === s.id
-                        ? " · currently accepted"
-                        : ""}
-                    </summary>
-                    <p className="muted text-xs mt-3">
-                      Approval records:{" "}
-                      {(allApprovals.data || [])
-                        .filter((a) => a.version_id === s.id)
-                        .map(
-                          (a) =>
-                            `${a.role} · ${new Date(a.created_at).toISOString()}`,
-                        )
-                        .join("; ") || "None"}
-                    </p>
-                    <div className="mt-4">
-                      <ScopeDetails content={s.content} />
-                    </div>
-                  </details>
-                ))}
-              </div>
-              {["discussion", "active"].includes(project.status) && (
-                <details className="panel">
-                  <summary className="font-semibold cursor-pointer">
-                    {latest ? "Propose a revision" : "Draft milestone agreement"}
-                  </summary>
-                  <ActionForm actionName="scope" className="stack mt-6">
-                    <input type="hidden" name="id" value={id} />
-                    <input
-                      type="hidden"
-                      name="expected"
-                      value={latest?.id || ""}
-                    />
-                    {[
-                      ["deliverables", "Deliverables"],
-                      ["exclusions", "Exclusions"],
-                      ["assumptions", "Assumptions"],
-                      ["responsibilities", "Client responsibilities"],
-                      ["acceptanceCriteria", "Acceptance criteria"],
-                      ["paymentTerms", "Payment terms"],
-                      ["schedule", "Schedule"],
-                    ].map(([key, label]) => (
-                      <div key={key}>
-                        <label htmlFor={key}>{label}</label>
-                        <textarea
-                          id={key}
-                          name={key}
-                          defaultValue={latest?.content[key] || ""}
-                          required
-                          maxLength={
-                            key === "deliverables" ||
-                            key === "acceptanceCriteria"
-                              ? 10000
-                              : 5000
-                          }
-                        />
-                      </div>
-                    ))}
-                    <div>
-                      <label htmlFor="priceUsd">Price (USD)</label>
-                      <input
-                        id="priceUsd"
-                        name="priceUsd"
-                        inputMode="decimal"
-                        placeholder="1000.00"
-                        defaultValue={(
-                          (latest?.content.priceCents || 0) / 100
-                        ).toFixed(2)}
-                        required
-                      />
-                    </div>
-                    {project.accepted_version_id && (
-                      <fieldset className="stack border-t border-slate-200 pt-5">
-                        <legend className="font-semibold">
-                          Change explanation
-                        </legend>
-                        <input
-                          type="hidden"
-                          name="baseVersion"
-                          value={project.accepted_version_id}
-                        />
-                        {[
-                          ["changeReason", "Why is this change needed?"],
-                          ["affectedReferences", "Affected scope references"],
-                          ["costImpact", "Cost impact and who confirmed it"],
-                          ["scheduleImpact", "Schedule impact"],
-                        ].map(([name, label]) => (
-                          <div key={name}>
-                            <label htmlFor={name}>{label}</label>
-                            <textarea
-                              id={name}
-                              name={name}
-                              maxLength={3000}
-                              required
-                            />
-                          </div>
-                        ))}
-                      </fieldset>
-                    )}
-                    <p className="notice text-xs">
-                      Submitting makes this version immutable and supersedes
-                      prior pending approvals. Desired outcomes are not
-                      guarantees. Both parties must approve this exact revision.
-                    </p>
-                    <Button>Submit immutable proposal</Button>
-                  </ActionForm>
-                </details>
-              )}
-              <MilestoneView
-                db={db}
-                id={id}
-                role={role}
-                latest={latest}
-                accepted={project.accepted_version_id}
-                status={project.status}
-              />
-            </div>
-          )}
+          {tab === "milestones" && <IndividualMilestones db={db} id={id} userId={user.id} role={role} status={project.status}
+            disabled={project.funding !== "funded" || !["discussion", "active"].includes(project.status)}
+            aiUnavailable={agent.setupReason || (!agent.summary || !agent.budgetNano || BigInt(agent.summary.availableNano) < BigInt(agent.budgetNano) ? "The shared agent needs sufficient tokens to draft milestones." : null)} selected={query.version} />}
           {tab === "calendar" && (
             <CalendarView db={db} userId={user.id} e={id} />
           )}
@@ -801,57 +603,10 @@ export default async function Workspace({
               topupAmounts={policy.data?.supported_topups || []}
             />
           )}
-          {tab === "overview" && (
-            <div className="stack">
-              <section className="panel">
-                <h2>Evidence-linked overview</h2>
-                <p className="muted mt-3">
-                  Discussed and proposed information is distinct from accepted
-                  commitments. This summary is not an agreement.
-                </p>
-                {parsedSummary.success ? (
-                  <>
-                    <p className="muted text-xs mt-3">
-                      Last successful refresh:{" "}
-                      {new Date(
-                        summaryRun.data!.finished_at ||
-                          summaryRun.data!.created_at,
-                      ).toLocaleString("en-GB", { timeZone: "UTC" })}{" "}
-                      UTC
-                    </p>
-                    <AgentAdvice id={id} result={parsedSummary.data} />
-                  </>
-                ) : (
-                  <p className="mt-4">No successful summary refresh yet.</p>
-                )}
-              </section>
-              <ReputationView
-                db={db}
-                id={id}
-                role={role}
-                userId={user.id}
-                accepted={project.accepted_version_id}
-                status={project.status}
-                isDemo={project.is_demo}
-              />
-              {agent.summary && (
-                <AgentPanel
-                  key="overview-shared"
-                  engagementId={id}
-                  visibility="shared"
-                  availableNano={agent.summary.availableNano}
-                  budgetNano={agent.budgetNano}
-                  setupReason={agent.setupReason}
-                  runs={agent.runs}
-                  userId={user.id}
-                  defaultMode="summary"
-                />
-              )}
-            </div>
-          )}
+          {tab === "discussion" && !["discussion", "active"].includes(project.status) && <ReputationView db={db} id={id} role={role} userId={user.id} accepted={project.accepted_version_id} status={project.status} isDemo={project.is_demo} />}
           {tab === "payments" && (
             <PaymentView db={db} engagementId={id} acceptedVersion={project.accepted_version_id}
-              role={role} professionalName={identities.data?.find((party: {role: string}) => party.role === "professional")?.display_name || ""} />
+              checkout={query.checkout} cancelled={query.cancelled} page={Math.min(10000, Math.max(0, Number.parseInt(query.ledger_page || "0", 10) || 0))} role={role} professionalName={identities.data?.find((party: {role: string}) => party.role === "professional")?.display_name || ""} />
           )}
         </div>
       </main>

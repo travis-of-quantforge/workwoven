@@ -15,6 +15,9 @@ import { Button } from "@/components/ui/button";
 export default async function Home() {
   const db = configured() ? await database() : null;
   const user = db ? (await db.auth.getUser()).data.user : null;
+  const invitations = user?.email_confirmed_at
+    ? await db!.rpc("received_invitations")
+    : { data: [], error: null };
   const { data: profile } = user
     ? await db!.from("profiles").select("active_role").eq("id", user.id).maybeSingle()
     : { data: null };
@@ -23,7 +26,12 @@ export default async function Home() {
   const { data: projects } = user
     ? await db!
         .from("engagements")
-        .select("*")
+        .select("*,messages(body)")
+        .eq("messages.visibility", "shared")
+        .eq("messages.channel", "discussion")
+        .order("created_at", { referencedTable: "messages", ascending: false })
+        .order("id", { referencedTable: "messages", ascending: false })
+        .limit(1, { referencedTable: "messages" })
         .order("created_at", { ascending: false })
     : { data: null };
   const { data: memberships } = user
@@ -92,6 +100,22 @@ export default async function Home() {
         </div>
       )}
       {user && <Notifications items={notices || []} />}
+      {user && invitations.error && <p role="alert" className="notice mb-6">Invitations could not be loaded. Refresh to retry.</p>}
+      {!!invitations.data?.length && <section aria-label="Pending invitations" className="panel mb-7">
+        <h2>Pending invitations</h2>
+        {invitations.data.map((invitation: { id: string; title: string; role: string; expires_at: string }) => (
+          <div key={invitation.id} className="mt-4 flex flex-wrap items-center justify-between gap-4 border-t pt-4">
+            <div>
+              <h3>{invitation.title}</h3>
+              <p className="muted text-sm">Invited as {invitation.role} · expires {new Date(invitation.expires_at).toLocaleString("en-GB", { timeZone: "UTC" })} UTC</p>
+            </div>
+            <ActionForm actionName="accept-received">
+              <input type="hidden" name="invitation" value={invitation.id} />
+              <Button>Accept invitation</Button>
+            </ActionForm>
+          </div>
+        ))}
+      </section>}
       {user && <div className="space-y-7">
         <div className="panel mx-auto w-full max-w-xl py-10">
           <div className="text-center">
@@ -142,14 +166,14 @@ export default async function Home() {
               </div>
               <div className="mt-4 flex gap-3">
                 <span className="badge">{p.status}</span>
-                <span className="muted text-xs">
-                  You are the{" "}
-                  {memberships?.find((m) => m.engagement_id === p.id)?.role}
-                </span>
                 {p.funding === "pending" && (
                   <span className="badge">Funding pending</span>
                 )}
               </div>
+              {p.messages?.[0]?.body && <p className="muted mt-3 text-sm break-words">
+                {Array.from(p.messages[0].body).slice(0, 100).join("")}
+                {Array.from(p.messages[0].body).length > 100 ? "…" : ""}
+              </p>}
             </Link>
           ))}
         </section>

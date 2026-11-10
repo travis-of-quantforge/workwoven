@@ -1,4 +1,7 @@
 import { z } from "zod";
+export const milestoneSuggestionSchema = z.object({
+  description: z.string().trim().min(1).max(5000),
+});
 export const milestoneSchema = z.object({
   key: z.uuid(),
   title: z.string().trim().min(1).max(200),

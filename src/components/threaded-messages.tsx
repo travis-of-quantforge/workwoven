@@ -17,16 +17,19 @@ export function ThreadedMessages({
   userId,
   members,
   files,
+  milestoneEvents = [],
 }: {
   messages: Message[];
   engagementId: string;
   visibility: string;
   userId: string;
   members: Member[];
+  milestoneEvents?: { message_id: string; milestone_id: string; version_id: string; event: string }[];
   files: { id: string; name: string; source_message_id: string | null }[];
 }) {
   const ids = new Set(messages.map((m) => m.id));
   function card(m: Message) {
+    const milestoneEvent = milestoneEvents.find(event => event.message_id === m.id);
     return (
       <article
         key={m.id}
@@ -34,7 +37,7 @@ export function ThreadedMessages({
         className="border-b border-slate-100 pb-5 scroll-mt-5"
       >
         <div className="flex flex-wrap gap-3 items-center mb-2">
-          <span className="font-semibold text-xs">
+          <span className={`font-semibold text-xs ${m.kind === "agent" ? "ai-text" : ""}`}>
             {m.kind === "agent"
               ? visibility === "shared"
                 ? "Project agent"
@@ -60,7 +63,8 @@ export function ThreadedMessages({
             Evidence link
           </Link>
         </div>
-        <p className="whitespace-pre-wrap break-words">{m.body}</p>
+        <p className={`whitespace-pre-wrap break-words ${m.kind === "agent" ? "ai-text" : ""}`}>{m.body}</p>
+        {milestoneEvent && <Link className="inline-flex rounded-lg border border-teal-700 px-4 py-2 mt-3 text-sm font-medium text-teal-900" href={`/workspace/${engagementId}?tab=milestones&version=${milestoneEvent.version_id}#milestone-${milestoneEvent.milestone_id}`}>View milestone · {milestoneEvent.event === "accepted" ? "accepted version" : "review proposal"}</Link>}
         {files
           .filter((f) => f.source_message_id === m.id)
           .map((f) => (

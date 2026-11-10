@@ -25,6 +25,9 @@ const result = await response.json();
 console.log(
   JSON.stringify({
     httpStatus: response.status,
+    sandboxMerchantIdConfigured: /^[A-Z0-9]{13}$/.test(process.env.SANDBOX_PAYPAL_PARTNER_MERCHANT_ID || ""),
+    sandboxBnCodeConfigured: Boolean(process.env.SANDBOX_PAYPAL_PARTNER_ATTRIBUTION_ID),
+    sandboxWebhookConfigured: Boolean(process.env.SANDBOX_PAYPAL_PARTNER_WEBHOOK_ID),
     tokenIssued: Boolean(result.access_token),
     partnerReferralsScope:
       typeof result.scope === "string" &&

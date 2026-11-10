@@ -8,6 +8,7 @@ vi.mock("openai", () => ({
   },
 }));
 import { generateAgentResult } from "../src/lib/ai/openai";
+import { milestoneAgentResultSchema, type Evidence } from "../src/lib/ai/contracts";
 const price = {
   id: "fixture",
   model: "fixture",
@@ -38,16 +39,16 @@ const first = {
     },
   ],
 } as unknown as Response;
-function streamed(status = "completed") {
+function streamed(status = "completed", payload: unknown = answer) {
   return (async function* () {
-    yield { type: "response.output_text.delta", delta: JSON.stringify(answer) };
+    yield { type: "response.output_text.delta", delta: JSON.stringify(payload) };
     yield {
       type:
         status === "completed" ? "response.completed" : "response.incomplete",
       response: {
         id: "fixture-answer",
         status,
-        output_text: JSON.stringify(answer),
+        output_text: JSON.stringify(payload),
       },
     };
   })();
@@ -57,6 +58,22 @@ beforeEach(() => {
   provider.create
     .mockResolvedValueOnce(first)
     .mockResolvedValueOnce(streamed());
+});
+it("returns validated milestone suggestions through the existing bounded, metered provider flow", async () => {
+  const source: Evidence = { ref: "message:00000000-0000-4000-8000-000000000001", kind: "message", record_id: "00000000-0000-4000-8000-000000000001", version: "1", body: "Build regional dashboard from CSV", state: "discussed", source_visibility: "shared", excerpt: false };
+  const draft = { ...answer, kind: "milestones", citations: [{ ref: source.ref, version: "1", visibility: "shared" }], milestones: [{ description: "CSV dashboard with regional totals" }] };
+  provider.create.mockReset().mockResolvedValueOnce(first).mockResolvedValueOnce(streamed("completed", draft));
+  const meter = vi.fn();
+  const result = await generateAgentResult(price, "shared", "milestones", "Draft milestone descriptions only from discussion.", { search: async () => [source], meter, preview: () => {}, status: () => {} }, new AbortController().signal);
+  expect(milestoneAgentResultSchema.parse(result.result).milestones).toEqual(draft.milestones);
+  expect(JSON.stringify(provider.create.mock.calls[1][0].input)).toContain(source.body);
+  expect(meter).toHaveBeenCalledTimes(2);
+  expect(provider.create).toHaveBeenCalledTimes(2);
+  const schema = provider.create.mock.calls[1][0].text.format.schema;
+  expect(schema.required).toContain("milestones");
+  expect(JSON.stringify(schema.properties.milestones)).not.toContain("amountCents");
+  expect(JSON.stringify(schema.properties.milestones)).not.toContain("targetDate");
+  expect(milestoneAgentResultSchema.safeParse({ ...draft, proposal: { title: "AI-priced proposal" } }).success).toBe(false);
 });
 it("performs one bounded retrieval tool call and meters both provider responses", async () => {
   const hooks = {

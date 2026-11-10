@@ -30,7 +30,7 @@ export default async function ProfilePage() {
       </section>
       <section className="panel">
         <p className="muted mb-5">
-          One account can work as a client or professional. These fields become public only when you enable the public profile.
+          One account can work as a client or professional. Your name, description and skills become public only when you enable the public profile. Your hourly rate is shared with engagement counterparties.
           Email, discussions, files, prices and private assistant activity stay
           private.
         </p>
@@ -52,6 +52,9 @@ export default async function ProfilePage() {
             defaultValue={p?.company || ""}
             maxLength={160}
           />
+          <label htmlFor="hourly-rate">Professional hourly rate (USD)</label>
+          <input id="hourly-rate" name="hourlyRate" type="number" min="0.01" max="1000000" step="0.01" defaultValue={p?.hourly_rate_cents ? (p.hourly_rate_cents / 100).toFixed(2) : ""} />
+          <p className="muted text-xs">Shared with your engagement counterpart to help estimate milestones. Each milestone price still needs both parties’ approval.</p>
           <label htmlFor="bio">Public description</label>
           <textarea
             id="bio"

@@ -84,10 +84,10 @@ export default async function Conversations({ params, searchParams }: {
           <div className="stack">
             {messages.map((message) => <article key={message.id} className="panel">
               <div className="flex flex-wrap gap-2 text-xs muted">
-                <span>{message.kind === "agent" ? "Agent" : message.kind === "system" ? "System" : authors.data?.find((a) => a.id === message.author_id)?.display_name || (message.author_id === id ? "This user" : "Counterparty")}</span>
+                <span className={message.kind === "agent" ? "ai-text" : undefined}>{message.kind === "agent" ? "Agent" : message.kind === "system" ? "System" : authors.data?.find((a) => a.id === message.author_id)?.display_name || (message.author_id === id ? "This user" : "Counterparty")}</span>
                 <time dateTime={message.created_at}>{new Date(message.created_at).toLocaleString("en-GB", { timeZone: "UTC" })} UTC</time>
               </div>
-              <p className="mt-3 whitespace-pre-wrap break-words">{message.body}</p>
+              <p className={`mt-3 whitespace-pre-wrap break-words ${message.kind === "agent" ? "ai-text" : ""}`}>{message.body}</p>
             </article>)}
             {!messages.length && <p className="muted">No messages in this conversation.</p>}
           </div>

@@ -5,6 +5,7 @@ import { toResponseInputItems } from "openai/lib/responses/ResponseInputItems";
 import { z } from "zod";
 import {
   agentResultSchema,
+  milestoneAgentResultSchema,
   partialAnswer,
   validateGrounding,
   boundedEvidence,
@@ -63,7 +64,10 @@ export async function generateAgentResult(
     maxRetries: 0,
     timeout: 45000,
   });
-  const instructions = agentInstructions(visibility, mode);
+  const instructions = agentInstructions(visibility, mode) + (mode === "milestones"
+    ? " Draft milestone descriptions only from shared goals and discussion. An accepted agreement is not a prerequisite: draft proposals from discussed goals even before the parties agree. For this mode the search tool returns the authorised shared project context regardless of your search wording. Do not mistake the absence of accepted terms for an absence of discussion. Do not estimate or recommend amounts, hourly rates, deadlines or dates in any output field. Each milestone suggestion contains only a description. Leave proposal and summary null. People enter prices and deadlines themselves. Cite supporting evidence and ask questions only where the actual work is unclear. Existing accepted commitments remain binding until a revision is approved."
+    : "");
+  const resultSchema = mode === "milestones" ? milestoneAgentResultSchema : agentResultSchema;
   const first: ResponseCreateParamsNonStreaming = {
     model: price.model,
     store: false,
@@ -107,7 +111,7 @@ export async function generateAgentResult(
         output: JSON.stringify(evidence),
       },
     ],
-    text: { format: zodTextFormat(agentResultSchema, "workspace_advice") },
+    text: { format: zodTextFormat(resultSchema, "workspace_advice") },
     max_output_tokens: ANSWER_OUTPUT_TOKENS,
     stream: true,
   };
@@ -139,7 +143,7 @@ export async function generateAgentResult(
   if (final.status !== "completed" && final.status !== "incomplete")
     throw new Error("Provider did not complete a usable response");
   const result = validateGrounding(
-    agentResultSchema.parse(JSON.parse(final.output_text || snapshot)),
+    resultSchema.parse(JSON.parse(final.output_text || snapshot)),
     evidence,
   );
   if (result.kind !== mode) throw new Error("Unexpected advice type");

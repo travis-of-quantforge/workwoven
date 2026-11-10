@@ -46,6 +46,8 @@ select public.finish_agent_run(:'run','{"kind":"advice","answer":"Fixture recomm
 select public.finish_agent_run(:'run','{"kind":"advice","answer":"Fixture recommendation"}','Fixture recommendation','success');
 do $$ begin
  if(select count(*) from public.messages where body='Fixture recommendation' and kind='agent')<>1 then raise exception 'Duplicate agent output';end if;
+ if (select count(*) from public.messages where body in ('Fixture shared question','Fixture recommendation') and channel='agent')<>2 then raise exception 'Agent chat classification missing';end if;
+ if exists(select 1 from public.messages where body in ('Fixture shared question','Fixture recommendation') and channel='discussion') then raise exception 'Agent exchange leaked into primary discussion';end if;
  if(select charge_nano from public.usage_operations where id=current_setting('test.run')::uuid)<>214000 then raise exception 'Agent billing incorrect';end if;
 end $$;
 select public.begin_agent_run(:'engagement','client','00000000-0000-0000-0000-000000000001','Fixture private partial','40000000-0000-0000-0000-000000000002',100000000,:'pricing','fixture-partial') as partial \gset
@@ -69,3 +71,26 @@ select public.recover_agent_runs();
 select set_config('test.abandoned',:'abandoned',false);
 do $$ begin if(select status from public.agent_runs where id=current_setting('test.abandoned')::uuid)<>'failed' then raise exception 'Abandoned run not recovered';end if;end $$;
 \echo 'Agent retrieval, history isolation, billing, consent and recovery assertions passed'
+reset role;
+set role authenticated;
+select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',false);
+do $$begin
+ if not exists(select 1 from public.milestone_agent_context(current_setting('test.engagement')::uuid) where body='fixture_token shared fact') then raise exception 'Milestone context omitted shared brief';end if;
+ if exists(select 1 from public.milestone_agent_context(current_setting('test.engagement')::uuid) where source_visibility<>'shared' or body like '%client secret%' or body like '%professional secret%' or body='Fixture shared question' or body='Fixture recommendation') then raise exception 'Milestone context includes private sources or agent echoes';end if;
+end $$;
+select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000009',false);
+select id as brief_project from public.engagements where title='Professional first project' \gset
+select set_config('test.brief_project',:'brief_project',false);
+select public.post_discussion_message(:'brief_project','shared','An artist needs a catalog and an order inquiry form.');
+select public.post_discussion_message(:'brief_project','professional','PRIVATE wholesale pricing notes');
+do $$begin
+ if exists(select 1 from public.search_agent_evidence(current_setting('test.brief_project')::uuid,'shared','milestone goals accepted terms')) then raise exception 'Fixture search unexpectedly matches generic drafting words';end if;
+ if not exists(select 1 from public.milestone_agent_context(current_setting('test.brief_project')::uuid) where body='An artist needs a catalog and an order inquiry form.' and state='discussed') then raise exception 'Milestone drafting requires keyword matches or accepted terms';end if;
+ if exists(select 1 from public.milestone_agent_context(current_setting('test.brief_project')::uuid) where body like '%PRIVATE%') then raise exception 'Milestone context leaked own private content';end if;
+end $$;
+select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000003',false);
+do $$begin
+ begin perform public.milestone_agent_context(current_setting('test.brief_project')::uuid);raise exception 'Cross-engagement milestone retrieval allowed';
+ exception when others then if sqlerrm<>'Forbidden' then raise;end if;end;
+end $$;
+reset role;

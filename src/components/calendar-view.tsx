@@ -16,7 +16,7 @@ export async function CalendarView({
   userId: string;
   e?: string;
 }) {
-  const [meetingRows, engagements, tasks] = await Promise.all([
+  const [meetingRows, engagements, tasks, milestoneVersions, milestones] = await Promise.all([
     db
       .from("meetings")
       .select("*")
@@ -24,6 +24,8 @@ export async function CalendarView({
       .limit(300),
     db.from("engagements").select("id,title,status,accepted_version_id"),
     db.from("milestone_tasks").select("id,title,version_id,engagement_id"),
+    db.from("milestone_versions").select("id,task_id,milestone_id"),
+    db.from("milestones").select("id,accepted_version_id"),
   ]);
   if (meetingRows.error || engagements.error)
     return (
@@ -59,7 +61,7 @@ export async function CalendarView({
     ["discussion", "active"].includes(g.status),
   );
   const currentTasks = (tasks.data || []).filter(
-    (t) => t.version_id === currentEngagement?.accepted_version_id,
+    (t) => t.engagement_id === e && (milestoneVersions.data?.some(v => v.task_id === t.id && milestones.data?.some(m => m.id === v.milestone_id && m.accepted_version_id === v.id)) || t.version_id === currentEngagement?.accepted_version_id),
   );
   const known = meetings
     .filter((m) => m.status === "open")

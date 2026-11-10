@@ -120,47 +120,14 @@ await checked(
 );
 const day = (offset) =>
   new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10);
-const taskKey = randomUUID();
-const s = await checked(
-  await professional.rpc("submit_scope", {
-    e,
-    expected: null,
-    c: {
-      milestones: [
-        {
-          key: taskKey,
-          title: "Dashboard with reconciled CSV totals",
-          owner: "professional",
-          startDate: day(1),
-          endDate: day(11),
-          acceptanceCriteria:
-            "Regional totals and filters match the supplied example CSV.",
-          paymentTerms:
-            "After client acceptance; no payment is created by this seed.",
-          amountCents: 100000,
-          dependencies: [],
-        },
-      ],
-      deliverables:
-        "CSV import and responsive reporting dashboard with revenue, refunds and regional totals.",
-      exclusions:
-        "Scheduled email reports, hosting and external data connectors.",
-      assumptions: "Client supplies a documented CSV export.",
-      responsibilities:
-        "Provide representative data and review within two working days.",
-      acceptanceCriteria:
-        "Imported totals match the supplied CSV; date and region filters update all figures.",
-      priceCents: 100000,
-      currency: "USD",
-      paymentTerms:
-        "Payment after delivery acceptance; no payment is created by this demo seed.",
-      schedule:
-        "Dashboard delivered within ten working days of receiving the representative export.",
-    },
-  }),
-);
-await checked(await client.rpc("approve_scope", { s }));
-await checked(await professional.rpc("approve_scope", { s }));
+const [s] = await checked(await professional.rpc("submit_individual_milestones", {
+  e, k: randomUUID(), m: null, expected: null, reason: "",
+  rows: [{ description: "CSV import and responsive reporting dashboard with revenue, refunds and regional totals.",
+    acceptanceCriteria: "Imported totals match the supplied CSV; date and region filters update all figures.",
+    responsibilities: "Provide representative data and review within two working days.",
+    amountCents: 100000, targetDate: day(11) }],
+}));
+await checked(await client.rpc("accept_milestone", { v: s }));
 const taskRows = await checked(
   await professional
     .from("milestone_tasks")

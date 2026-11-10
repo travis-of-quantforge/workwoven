@@ -27,5 +27,21 @@ psql -v ON_ERROR_STOP=1 -f tests/reputation.sql >/dev/null
 psql -v ON_ERROR_STOP=1 -f tests/admin-credits.sql >/dev/null
 psql -v ON_ERROR_STOP=1 -f tests/concerns-invitations.sql >/dev/null
 psql -v ON_ERROR_STOP=1 -f tests/payment-requests.sql >/dev/null
+psql -v ON_ERROR_STOP=1 -f tests/individual-milestones.sql >/dev/null
+psql -v ON_ERROR_STOP=1 -f tests/payment-ledger.sql >/dev/null
 python3 tests/concurrency.py
+# Apply the new migration over real multi-task legacy records in a separate
+# disposable database, not just an empty schema.
+createdb milestone_import
+PGDATABASE=milestone_import psql -v ON_ERROR_STOP=1 < <(sed '/^create role /d' tests/database-bootstrap.sql) >/dev/null
+for migration in supabase/migrations/*.sql; do
+  if [[ "$migration" < "supabase/migrations/202611100029_" ]]; then
+    PGDATABASE=milestone_import psql -1 -v ON_ERROR_STOP=1 -f "$migration" >/dev/null
+  fi
+done
+PGDATABASE=milestone_import psql -v ON_ERROR_STOP=1 -f tests/milestone-import-before.sql >/dev/null
+PGDATABASE=milestone_import psql -1 -v ON_ERROR_STOP=1 -f supabase/migrations/202611100029_individual_milestones.sql >/dev/null
+PGDATABASE=milestone_import psql -1 -v ON_ERROR_STOP=1 -f supabase/migrations/202611100030_milestone_payment_guards.sql >/dev/null
+PGDATABASE=milestone_import psql -1 -v ON_ERROR_STOP=1 -f supabase/migrations/202611100031_milestone_approvals.sql >/dev/null
+PGDATABASE=milestone_import psql -v ON_ERROR_STOP=1 -f tests/milestone-import-after.sql >/dev/null
 printf 'Database permissions, approval, credit and concurrency assertions passed.\n'

@@ -1,4 +1,8 @@
 @import "tailwindcss";
+.ai-text,
+.ai-text :is(p, li, dt, dd, strong, span, a, h1, h2, h3, h4, summary, time) {
+  color: #1e3a8a;
+}
 :root {
   --background: #f7f8fa;
   --foreground: #243136;

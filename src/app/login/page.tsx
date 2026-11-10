@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { configured } from "@/lib/supabase/server";
 import { activeInvitation } from "@/lib/invitations";
 import { redirect } from "next/navigation";
+import { SignupProfileFields } from "@/components/signup-profile-fields";
 export default async function Login({
   searchParams,
 }: {
@@ -68,15 +69,7 @@ export default async function Login({
             <input id="confirm-password" name="confirmPassword" type="password" minLength={8} maxLength={128} autoComplete="new-password" required />
           </div>
         )}
-        {signup && !invitation && (
-          <div>
-            <label htmlFor="profile-type">Start as</label>
-            <select id="profile-type" name="profileType" defaultValue="client" required>
-              <option value="client">Client</option>
-              <option value="professional">Freelancer / professional</option>
-            </select>
-          </div>
-        )}
+        {signup && <SignupProfileFields invitedRole={invited?.role} />}
         <Button disabled={!configured()}>{signup ? "Create account" : "Sign in"}</Button>
         {!invitation && !adminLogin && <small className="muted">
           Verify your email to claim your once-only 50-token shared-agent starter

@@ -26,7 +26,7 @@ export function Notifications({ items }: { items: Notice[] }) {
             <div>
               <Link
                 className="underline text-sm"
-                href={`/workspace/${n.engagement_id}?tab=${discussion ? "discussion" : n.kind === "invitation_accepted" ? "discussion" : n.kind === "concern" ? "concerns" : n.kind === "payment_request" ? "payments" : n.kind === "review_published" ? "overview" : n.kind.startsWith("delivery") ? "milestones" : n.kind.startsWith("meeting") ? "calendar" : "milestones"}${discussion ? "#message-" + n.record_id : n.kind === "concern" ? "#concern-" + n.record_id : ""}`}
+                href={`/workspace/${n.engagement_id}?tab=${discussion ? "discussion" : n.kind === "invitation_accepted" ? "discussion" : n.kind === "concern" ? "concerns" : n.kind === "payment_request" ? "payments" : n.kind === "review_published" ? "discussion" : n.kind.startsWith("delivery") ? "milestones" : n.kind.startsWith("meeting") ? "calendar" : "milestones"}${discussion ? "#message-" + n.record_id : n.kind === "concern" ? "#concern-" + n.record_id : ""}`}
               >
                 {n.kind.replaceAll("_", " ")}
               </Link>

@@ -7,6 +7,16 @@ export function databaseActionError(code: string, message: string) {
     );
   const allowed = [
     "Verified account required",
+    "Both parties must join before payments",
+    "A milestone payment is processing; refresh its status before accepting a revision",
+    "Engagement is archived",
+    "Invalid payment request",
+    "Payment request is no longer payable",
+    "Outstanding balance changed; request a new payment",
+    "Professional must connect PayPal sandbox first",
+    "Milestone has no outstanding balance",
+    "Only completed payments can be refunded",
+    "Invalid refund amount or reason",
     "Forbidden",
     "Funding required",
     "Completion requires an accepted agreement",

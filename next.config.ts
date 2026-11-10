@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
+import { PHASE_DEVELOPMENT_SERVER } from "next/constants";
 const config: NextConfig = {
-  distDir: process.env.NEXT_DIST_DIR || ".next",
+  logging: { incomingRequests: false },
   turbopack: {
     rules: { "*.css": { loaders: ["@tailwindcss/turbopack"], as: "*.css" } },
   },
@@ -18,4 +19,8 @@ const config: NextConfig = {
     ];
   },
 };
-export default config;
+const nextConfig = (phase: string): NextConfig => ({
+  ...config,
+  distDir: process.env.NEXT_DIST_DIR || (phase === PHASE_DEVELOPMENT_SERVER ? ".next-dev" : ".next"),
+});
+export default nextConfig;

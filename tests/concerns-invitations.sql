@@ -36,8 +36,23 @@ end $$;
 -- A fresh invitation remains possible after revocation.
 select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000002',false);
 select public.create_invitation(:'engagement','client@example.test') as accepted_token \gset
+do $$begin
+ if exists(select 1 from public.received_invitations() where title='Concern and invitation fixture') then raise exception 'Inviter sees received invitation';end if;
+ begin
+  perform public.accept_received_invitation((select id from public.invitations where engagement_id=current_setting('test.invite_engagement')::uuid and revoked_at is null));
+  raise exception 'Wrong account accepted invitation by ID';
+ exception when others then if sqlerrm<>'Invitation unavailable for this account' then raise;end if;end;
+end $$;
 select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',false);
-select public.accept_invitation(:'accepted_token');
+select public.set_active_role('professional');
+do $$declare received uuid;begin
+ select id into received from public.received_invitations() where title='Concern and invitation fixture';
+ if received is null then raise exception 'Recipient cannot see invitation';end if;
+ perform public.accept_received_invitation(received);
+ if exists(select 1 from public.received_invitations() where id=received) then raise exception 'Accepted invitation remains pending';end if;
+ begin perform public.accept_received_invitation(received);raise exception 'Invitation replay accepted';
+ exception when others then if sqlerrm<>'Invitation unavailable for this account' then raise;end if;end;
+end $$;
 select public.open_concern(:'engagement','Acceptance evidence','The sample CSV totals do not match the proposed dashboard figures.','Compare the source and agree on the correction.',
  '50000000-0000-4000-8000-000000000001') as concern \gset
 select public.open_concern(:'engagement','Acceptance evidence','The sample CSV totals do not match the proposed dashboard figures.','Compare the source and agree on the correction.',

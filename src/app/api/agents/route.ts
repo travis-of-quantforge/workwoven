@@ -94,6 +94,17 @@ export async function POST(request: Request) {
       { error: "Agent context unavailable." },
       { status: 403 },
     );
+  let modelQuestion = value.question;
+  let milestoneContext: z.infer<typeof evidenceSchema>[] | null = null;
+  if (value.mode === "milestones") {
+    if (value.visibility !== "shared") return Response.json({ error: "Milestone drafting uses the shared project agent." }, { status: 400 });
+    const context = await db.rpc("milestone_agent_context", { e: value.engagementId });
+    const parsed = z.array(evidenceSchema).safeParse(context.data);
+    if (context.error || !parsed.success) return Response.json({ error: "The shared project context could not be loaded. Please retry." }, { status: 503 });
+    milestoneContext = parsed.data;
+    if (!milestoneContext.length) return Response.json({ error: "Add your project goals in shared Discussion or a supported shared file before drafting milestone descriptions." }, { status: 409 });
+    modelQuestion += "\nDraft descriptions only using shared goals and accepted terms. People will enter amounts and deadlines separately. Do not read private sources.";
+  }
   const admin = adminDatabase();
   const priceResult = await admin
     .from("ai_pricing")
@@ -125,7 +136,7 @@ export async function POST(request: Request) {
         e: value.engagementId,
         v: value.visibility,
         mode: value.mode,
-        q: value.question,
+        q: modelQuestion,
         model: price.model,
       }),
     )
@@ -134,7 +145,7 @@ export async function POST(request: Request) {
     e: value.engagementId,
     v: value.visibility,
     actor: user.id,
-    question: value.question,
+    question: modelQuestion,
     k: value.operationKey,
     budget: budget.toString(),
     price: price.id,
@@ -196,7 +207,7 @@ export async function POST(request: Request) {
           price,
           value.visibility,
           value.mode,
-          value.question,
+          modelQuestion,
           {
             started: async (responseId) => {
               await admin.rpc("mark_usage_uncertain", {
@@ -205,6 +216,7 @@ export async function POST(request: Request) {
               });
             },
             search: async (query) => {
+              if (milestoneContext) return milestoneContext;
               const found = await db.rpc("search_agent_evidence", {
                 e: value.engagementId,
                 v: value.visibility,

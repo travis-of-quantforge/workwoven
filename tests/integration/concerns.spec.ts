@@ -97,6 +97,7 @@ test("revoked invitation, mutual concern resolution, and accepted payment reques
       await expect(cp.getByLabel("Email", { exact: true })).toHaveCount(0);
       await cp.getByLabel("Password", { exact: true }).fill(password);
       await cp.getByLabel("Confirm password", { exact: true }).fill(password + "typo");
+      await cp.getByLabel("Hourly rate (USD)", { exact: true }).fill("50");
       await cp.getByRole("button", { name: "Create account", exact: true }).click();
       await expect(cp.getByRole("status")).toContainText("Passwords do not match");
       // Switching auth mode must preserve the invite without accepting it as the inviter.
@@ -107,6 +108,7 @@ test("revoked invitation, mutual concern resolution, and accepted payment reques
       await expect(pp).toHaveURL(/mode=signup&invitation=/);
       await pp.getByLabel("Password", { exact: true }).fill(password);
       await pp.getByLabel("Confirm password", { exact: true }).fill(password);
+      await pp.getByLabel("Hourly rate (USD)", { exact: true }).fill("50");
       await pp.getByRole("button", { name: "Create account", exact: true }).click();
       await expect(pp).toHaveURL(`http://127.0.0.1:3200/workspace/${id}`);
       const proLogin = await professional.db.auth.signInWithPassword({ email: professional.email, password });
@@ -213,13 +215,12 @@ test("revoked invitation, mutual concern resolution, and accepted payment reques
       expect(professionalApproval.error).toBeNull();
       expect(clientApproval.error).toBeNull();
       await pp.goto(`/workspace/${id}?tab=payments`);
-      await expect(
-        pp.getByText("Accepted agreement v1", { exact: false }),
-      ).toBeVisible();
-      await pp.getByRole("button", { name: "Create payment request" }).click();
-      await expect(
-        pp.getByText("Requested; checkout unavailable"),
-      ).toBeVisible();
+      const task = await professional.db.from("milestone_tasks").select("id").eq("version_id", scope.data).single();
+      const requested = await professional.db.rpc("request_milestone_payment", { e: id, t: task.data!.id, k: randomUUID() });
+      expect(requested.error).toBeNull();
+      await pp.reload();
+      await expect(pp.getByRole("heading", { name: "Awaiting payment" })).toBeVisible();
+      await expect(pp.getByRole("heading", { name: "Payment ledger" })).toBeVisible();
       const request = await service
         .from("payment_requests")
         .select("amount_cents,currency,status")
@@ -233,7 +234,7 @@ test("revoked invitation, mutual concern resolution, and accepted payment reques
       });
       await cp.goto(`/workspace/${id}?tab=payments`);
       await expect(
-        cp.getByText("Requested; checkout unavailable"),
+        cp.getByRole("heading", { name: "Awaiting payment" }),
       ).toBeVisible();
     } finally {
       await clientContext.close();

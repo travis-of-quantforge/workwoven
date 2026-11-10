@@ -5,6 +5,7 @@ import {
   partialAnswer,
   type AgentResult,
   type Evidence,
+  milestoneAgentResultSchema,
 } from "../src/lib/ai/contracts";
 const source: Evidence = {
   ref: "agreement:00000000-0000-0000-0000-000000000001",
@@ -16,6 +17,10 @@ const source: Evidence = {
   source_visibility: "shared",
   excerpt: false,
 };
+it("rejects milestone drafts with no source citations", () => {
+  const draft = milestoneAgentResultSchema.parse({ answer: "Suggested work", kind: "milestones", citations: [], questions: [], proposal: null, summary: null, milestones: [{ description: "Build the reporting dashboard" }] });
+  expect(() => validateGrounding(draft, [])).toThrow("Milestone descriptions require supporting evidence");
+});
 const advice: AgentResult = {
   answer: "Email reports are excluded.",
   kind: "change",

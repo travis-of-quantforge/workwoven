@@ -7,6 +7,7 @@ import { ActionForm } from "./action-form";
 import {
   agentResultSchema,
   agentModeSchema,
+  milestoneAgentResultSchema,
   type AgentResult,
 } from "@/lib/ai/contracts";
 import { formatTokens } from "@/lib/ai/pricing";
@@ -17,6 +18,7 @@ type Run = {
   result: unknown;
   created_at: string;
   actor_id: string;
+  output_message_id?: string | null;
   partialChargeNano?: string | null;
 };
 function EvidenceLinks({ result, id }: { result: AgentResult; id: string }) {
@@ -40,7 +42,7 @@ function EvidenceLinks({ result, id }: { result: AgentResult; id: string }) {
           <li key={c.ref}>
             <Link
               className="underline text-xs text-teal-800"
-              href={`/workspace/${id}?tab=${tab}${c.visibility === "shared" ? "" : "&context=private"}${kind === "message" ? `&message=${record}` : ""}#${anchor}-${record}`}
+              href={`/workspace/${id}?tab=${tab}${c.visibility === "shared" ? "" : "&context=private"}${kind === "message" ? `&message=${record}` : kind === "agreement" ? `&version=${record}` : ""}#${anchor}-${record}`}
             >
               {kind} ·{" "}
               {kind === "agreement"
@@ -61,7 +63,7 @@ export function AgentAdvice({
   id: string;
 }) {
   return (
-    <div className="mt-4">
+    <div className="ai-text mt-4">
       <p className="whitespace-pre-wrap break-words">{result.answer}</p>
       {result.questions.length > 0 && (
         <ul className="list-disc pl-5 mt-4 space-y-2">
@@ -159,6 +161,7 @@ export function AgentPanel({
   userId,
   defaultMode = "advice",
   compact = false,
+  conversation = [],
 }: {
   engagementId: string;
   visibility: string;
@@ -169,6 +172,15 @@ export function AgentPanel({
   userId: string;
   defaultMode?: "advice" | "summary";
   compact?: boolean;
+  conversation?:
+    | {
+        id: string;
+        kind: string;
+        body: string;
+        created_at: string;
+        author_id: string;
+      }[]
+    | null;
 }) {
   const router = useRouter();
   const [question, setQuestion] = useState("");
@@ -177,21 +189,21 @@ export function AgentPanel({
   const [status, setStatus] = useState("");
   const [preview, setPreview] = useState("");
   const [error, setError] = useState("");
-  const [result, setResult] = useState<AgentResult | null>(null);
   const operation = useRef<string | null>(null);
   const label =
     visibility === "shared" ? "Project agent" : `Private ${visibility} agent`;
   const sufficient =
     budgetNano !== null && BigInt(availableNano) >= BigInt(budgetNano);
   const visibleRuns = compact
-    ? runs.filter((run) => run.status === "partial_offered" && run.actor_id === userId)
+    ? runs.filter(
+        (run) => run.status === "partial_offered" && run.actor_id === userId,
+      )
     : runs;
   async function ask(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy) return;
     setBusy(true);
     setError("");
-    setResult(null);
     setPreview("");
     setStatus("Starting…");
     operation.current ??= crypto.randomUUID();
@@ -214,7 +226,7 @@ export function AgentPanel({
       if (!response.headers.get("content-type")?.includes("ndjson")) {
         const data = await response.json();
         if (data.result) {
-          setResult(agentResultSchema.parse(data.result));
+          agentResultSchema.parse(data.result);
           setStatus(
             data.status === "partial_offered"
               ? "Partial result: choose whether to keep it below."
@@ -247,7 +259,7 @@ export function AgentPanel({
             setPreview(String(message.answer).slice(0, 12000));
           if (message.type === "error") throw new Error(message.message);
           if (message.type === "result") {
-            setResult(agentResultSchema.parse(message.result));
+            agentResultSchema.parse(message.result);
             setStatus(
               message.status === "partial_offered"
                 ? "Partial result: choose whether to keep it below."
@@ -272,11 +284,11 @@ export function AgentPanel({
   return (
     <section className="panel">
       {compact ? (
-        <h2>Project Agent</h2>
+        <h2 className="ai-text">Project Agent</h2>
       ) : (
         <>
           <p className="eyebrow">{label}</p>
-          <h2 className="mt-3">Clarity, with evidence</h2>
+          <h2 className="ai-text mt-3">Clarity, with evidence</h2>
         </>
       )}
       <p className="muted text-xs my-3">
@@ -299,11 +311,73 @@ export function AgentPanel({
           {setupReason && <p className="notice text-xs mt-4">{setupReason}</p>}
           {!setupReason && !sufficient && (
             <p className="notice text-xs mt-4">
-              This balance cannot cover the operation budget. Top up this
-              agent to continue. Human collaboration remains available.
+              This balance cannot cover the operation budget. Top up this agent
+              to continue. Human collaboration remains available.
             </p>
           )}
         </>
+      )}
+      {conversation === null && (
+        <p className="notice text-sm mt-4">
+          Agent chat could not be loaded. Refresh to retry.
+        </p>
+      )}
+      {!!conversation?.length && (
+        <div
+          aria-label="Agent chat history"
+          className="mt-5 max-h-[32rem] space-y-5 overflow-y-auto"
+        >
+          {conversation.map((message) => {
+            const run = runs.find(
+              (item) => item.output_message_id === message.id,
+            );
+            const parsed = agentResultSchema.safeParse(run?.result);
+            const milestones = milestoneAgentResultSchema.safeParse(
+              run?.result,
+            );
+            return (
+              <article
+                id={`message-${message.id}`}
+                key={message.id}
+                className="border-b border-slate-100 pb-4 scroll-mt-4"
+              >
+                <p
+                  className={`text-xs font-semibold ${message.kind === "agent" ? "ai-text" : ""}`}
+                >
+                  {message.kind === "agent"
+                    ? label
+                    : message.author_id === userId
+                      ? "You"
+                      : "Counterparty"}
+                </p>
+                <time className="muted text-xs" dateTime={message.created_at}>
+                  {new Date(message.created_at).toLocaleString("en-GB", {
+                    timeZone: "UTC",
+                  })}{" "}
+                  UTC
+                </time>
+                {message.kind === "agent" && parsed.success ? (
+                  <>
+                    <AgentAdvice result={parsed.data} id={engagementId} />
+                    {milestones.success && milestones.data.milestones && (
+                      <ul className="ai-text mt-3 list-disc pl-5">
+                        {milestones.data.milestones.map((milestone, index) => (
+                          <li key={index}>{milestone.description}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </>
+                ) : (
+                  <p
+                    className={`mt-3 whitespace-pre-wrap break-words text-sm ${message.kind === "agent" ? "ai-text" : ""}`}
+                  >
+                    {message.body}
+                  </p>
+                )}
+              </article>
+            );
+          })}
+        </div>
       )}
       <form onSubmit={ask} className="stack mt-5">
         {!compact && (
@@ -318,19 +392,21 @@ export function AgentPanel({
               }}
               disabled={busy}
             >
-              {agentModeSchema.options.map((option) => (
-                <option key={option} value={option}>
-                  {option === "scope"
-                    ? "Scope draft"
-                    : option === "change"
-                      ? "Scope comparison / change"
-                      : option === "summary"
-                        ? "Overview refresh"
-                        : option === "meeting"
-                          ? "Meeting proposal"
-                          : "Advice and questions"}
-                </option>
-              ))}
+              {agentModeSchema.options
+                .filter((option) => option !== "milestones")
+                .map((option) => (
+                  <option key={option} value={option}>
+                    {option === "scope"
+                      ? "Scope draft"
+                      : option === "change"
+                        ? "Scope comparison / change"
+                        : option === "summary"
+                          ? "Overview refresh"
+                          : option === "meeting"
+                            ? "Meeting proposal"
+                            : "Advice and questions"}
+                  </option>
+                ))}
             </select>
           </div>
         )}
@@ -351,7 +427,11 @@ export function AgentPanel({
             maxLength={8000}
             required
             disabled={busy}
-            placeholder={compact ? "Help me understand this better..." : "What is still unclear, and what should we agree before delivery?"}
+            placeholder={
+              compact
+                ? "Help me understand this better..."
+                : "What is still unclear, and what should we agree before delivery?"
+            }
           />
         </div>
         <Button
@@ -378,10 +458,11 @@ export function AgentPanel({
       {!compact && busy && preview && (
         <div className="mt-4">
           <p className="eyebrow">Draft preview · still generating</p>
-          <p className="whitespace-pre-wrap break-words mt-3">{preview}</p>
+          <p className="ai-text whitespace-pre-wrap break-words mt-3">
+            {preview}
+          </p>
         </div>
       )}
-      {!compact && result && <AgentAdvice result={result} id={engagementId} />}
       {visibleRuns.length > 0 && (
         <div className="mt-6 space-y-5">
           {visibleRuns.map((run) => {
@@ -395,31 +476,33 @@ export function AgentPanel({
                   })}{" "}
                   UTC
                 </summary>
-                {parsed.success && (!compact || run.status === "partial_offered") && (
-                  <AgentAdvice result={parsed.data} id={engagementId} />
-                )}
+                {parsed.success &&
+                  (!compact || run.status === "partial_offered") && (
+                    <AgentAdvice result={parsed.data} id={engagementId} />
+                  )}
                 {!compact && (
                   <p className="muted text-xs mt-3">
-                    Recommendations do not constitute approval. Use selected-content
-                    sharing to publish private drafts.
+                    Recommendations do not constitute approval. Use
+                    selected-content sharing to publish private drafts.
                   </p>
                 )}
-                {run.status === "partial_offered" && run.actor_id === userId && (
-                  <ActionForm
-                    actionName="partial"
-                    className="mt-4 flex flex-wrap gap-3"
-                  >
-                    <input type="hidden" name="id" value={engagementId} />
-                    <input type="hidden" name="operation" value={run.id} />
-                    <Button name="decision" value="keep">
-                      Keep result and charge{" "}
-                      {formatTokens(run.partialChargeNano || 0)}
-                    </Button>
-                    <Button name="decision" value="discard" variant="outline">
-                      Discard without charge
-                    </Button>
-                  </ActionForm>
-                )}
+                {run.status === "partial_offered" &&
+                  run.actor_id === userId && (
+                    <ActionForm
+                      actionName="partial"
+                      className="mt-4 flex flex-wrap gap-3"
+                    >
+                      <input type="hidden" name="id" value={engagementId} />
+                      <input type="hidden" name="operation" value={run.id} />
+                      <Button name="decision" value="keep">
+                        Keep result and charge{" "}
+                        {formatTokens(run.partialChargeNano || 0)}
+                      </Button>
+                      <Button name="decision" value="discard" variant="outline">
+                        Discard without charge
+                      </Button>
+                    </ActionForm>
+                  )}
               </details>
             );
           })}

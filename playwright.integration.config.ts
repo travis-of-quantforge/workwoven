@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+const mockMilestones = process.env.TEST_MILESTONE_GENERATION === "mock";
 export default defineConfig({
   outputDir: "test-results/integration",
   testDir: "./tests/integration",
@@ -21,7 +22,8 @@ export default defineConfig({
     reuseExistingServer: false,
     timeout: 60000,
     env: {
-      AI_ENABLED: "false",
+      AI_ENABLED: mockMilestones ? "true" : "false",
+      ...(mockMilestones ? { OPENAI_API_KEY: "invalid-browser-test-key", OPENAI_MODEL: "gpt-6-luna" } : {}),
       BREVO_API_KEY: "",
       NEXT_DIST_DIR: ".next-integration",
       NEXT_PUBLIC_APP_URL: "http://127.0.0.1:3200",

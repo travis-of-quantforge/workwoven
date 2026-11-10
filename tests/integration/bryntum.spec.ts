@@ -9,7 +9,7 @@ function checked<
   if (r.error || r.data === null) throw new Error("Fixture operation failed");
   return r.data as NonNullable<T["data"]>;
 }
-test("licensed Bryntum views preserve accepted schedules, show proposals and safely render meeting titles", async ({
+test("licensed Bryntum Calendar preserves confirmed meetings and safely renders titles", async ({
   browser,
 }) => {
   test.setTimeout(240000);
@@ -158,86 +158,6 @@ test("licensed Bryntum views preserve accepted schedules, show proposals and saf
     await page.getByLabel("Password", { exact: true }).fill(password);
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
     await expect(page).toHaveURL("http://127.0.0.1:3200/");
-    await page.goto(`/workspace/${e}?tab=milestones`);
-    await expect(
-      page.locator('[data-bryntum-view="gantt"] .b-gantt'),
-    ).toHaveCount(2, { timeout: 60000 });
-    await expect(
-      page.locator('[data-bryntum-view="gantt"] .b-gantt-task-wrap'),
-    ).toHaveCount(4, { timeout: 30000 });
-    expect(await page.evaluate(() => "fixtureXss" in window)).toBe(false);
-    await expect(
-      page.locator('[data-bryntum-view="gantt"] img[src=x]'),
-    ).toHaveCount(0);
-    await expect(page.locator(".b-license-mask")).toHaveCount(0);
-    const chartState = await page.evaluate(() => {
-      const runtime = globalThis as unknown as {
-        bryntum: {
-          queryAll: (type: string) => {
-            readOnly: boolean;
-            taskStore: {
-              records: { id: string; startDate: Date; endDate: Date }[];
-            };
-          }[];
-        };
-      };
-      const date = (d: Date) =>
-        `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-      return runtime.bryntum.queryAll("gantt").map((g) => ({
-        readOnly: g.readOnly,
-        dates: g.taskStore.records.map((t) => ({
-          start: date(t.startDate),
-          end: date(t.endDate),
-        })),
-      }));
-    });
-    expect(chartState).toHaveLength(2);
-    expect(chartState.every((g) => g.readOnly)).toBe(true);
-    expect(chartState[0].dates[0]).toEqual({
-      start: tasks[0].startDate,
-      end: tasks[0].endDate,
-    });
-    const before = checked(
-      await client.db
-        .from("scope_versions")
-        .select("content")
-        .eq("id", s)
-        .single(),
-    );
-    const bar = page
-      .locator('[data-bryntum-view="gantt"] .b-gantt-task-wrap')
-      .first();
-    const box = await bar.boundingBox();
-    if (box) {
-      await page.mouse.move(box.x + 5, box.y + 8);
-      await page.mouse.down();
-      await page.mouse.move(box.x + 70, box.y + 8, { steps: 5 });
-      await page.mouse.up();
-    }
-    expect(
-      checked(
-        await client.db
-          .from("scope_versions")
-          .select("content")
-          .eq("id", s)
-          .single(),
-      ),
-    ).toEqual(before);
-    await page.screenshot({
-      path: "test-results/bryntum-gantt-desktop.png",
-      fullPage: true,
-    });
-    await page.setViewportSize({ width: 390, height: 844 });
-    expect(
-      await page.evaluate(
-        () => document.documentElement.scrollWidth <= innerWidth,
-      ),
-    ).toBe(true);
-    await page.screenshot({
-      path: "test-results/bryntum-gantt-mobile.png",
-      fullPage: true,
-    });
-    await page.setViewportSize({ width: 1280, height: 900 });
     const m = checked(
       await client.db.rpc("propose_meeting", {
         e,

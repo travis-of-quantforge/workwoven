@@ -102,48 +102,16 @@ test("two authenticated parties: grant, invite, private isolation, threads, file
     await expect(page.getByText(body, { exact: true })).toBeVisible();
   }
   async function fillScope(page: Page, emailReports = false) {
-    await page
-      .getByText(
-        emailReports ? "Propose a revision" : "Draft milestone agreement",
-        { exact: true },
-      )
-      .click();
-    const fields: Record<string, string> = {
-      Deliverables: emailReports
-        ? "Reporting dashboard plus scheduled weekly email reports."
-        : "Reporting dashboard with CSV import and region/date filters.",
-      Exclusions: "Hosting, external connectors and profitability guarantees.",
-      Assumptions: "A documented CSV export is available.",
-      "Client responsibilities":
-        "Supply representative data and review the dashboard.",
-      "Acceptance criteria":
-        "Totals reconcile to the example CSV; date and region filters update all figures.",
-      "Payment terms": "Payment after delivery acceptance; sandbox only.",
-      Schedule: emailReports
-        ? "Fifteen working days after the sample is supplied."
-        : "Ten working days after the sample is supplied.",
-    };
-    if (emailReports)
-      Object.assign(fields, {
-        "Why is this change needed?":
-          "Add scheduled reports after the original agreement.",
-        "Affected scope references":
-          "Deliverables, exclusions, schedule and price",
-        "Cost impact and who confirmed it":
-          "Professional proposes an additional USD 200; formal approval confirms it.",
-        "Schedule impact": "Five additional working days",
-      });
-    for (const [label, value] of Object.entries(fields))
-      await page.getByLabel(label, { exact: true }).fill(value);
-    await page
-      .getByLabel("Price (USD)", { exact: true })
-      .fill(emailReports ? "1200.00" : "1000.00");
-    await page
-      .getByRole("button", { name: "Submit immutable proposal" })
-      .click();
-    await expect(
-      page.getByText(emailReports ? "Version 2" : "Version 1", { exact: true }),
-    ).toBeVisible();
+    await page.getByRole("button", { name: emailReports ? "Propose amendment" : "Propose milestones", exact: true }).click();
+    const modal = page.getByRole("dialog");
+    await modal.getByLabel("Description", { exact: true }).fill(emailReports ? "Dashboard and weekly reports" : "Reporting dashboard with CSV import and region/date filters.");
+    await modal.getByLabel("Acceptance criteria", { exact: true }).fill("CSV totals reconcile and the weekly report includes the same totals.");
+    await modal.getByLabel("Client responsibilities (optional)").fill("Supply representative data and review the dashboard.");
+    await modal.getByLabel("Amount on completion (USD)").fill(emailReports ? "1200.00" : "1000.00");
+    await modal.getByLabel("Target deadline").fill("2026-12-18");
+    if (emailReports) await modal.getByLabel("Reason for revision").fill("Add scheduled reports after the original agreement.");
+    await modal.getByRole("button", { name: emailReports ? "Submit and approve amendment" : "Submit and approve proposals", exact: true }).click();
+    await expect(modal).toHaveCount(0);
   }
   try {
     const client = await actor("client");
@@ -233,6 +201,8 @@ test("two authenticated parties: grant, invite, private isolation, threads, file
     await expect(
       cp.getByLabel("Message", { exact: true }),
     ).toHaveValue("");
+    await expect(cp.getByRole("heading", { name: "Project Agent" })).toBeHidden();
+    await cp.getByText("Chat with the project agent", { exact: true }).click();
     await expect(cp.getByLabel("Your question", { exact: true })).toHaveValue(
       "",
     );
@@ -270,8 +240,11 @@ test("two authenticated parties: grant, invite, private isolation, threads, file
       t: inviteToken,
     });
     expect(wrong.error).not.toBeNull();
-    await pp.goto("/invite/" + inviteToken);
-    await pp
+    await pp.goto("/");
+    const pendingInvites = pp.getByRole("region", { name: "Pending invitations" });
+    await expect(pendingInvites).toBeVisible();
+    await expect(cp.getByRole("region", { name: "Pending invitations" })).toHaveCount(0);
+    await pendingInvites
       .getByRole("button", { name: "Accept invitation", exact: true })
       .click();
     await expect(pp).toHaveURL("http://127.0.0.1:3200/workspace/" + e);
@@ -498,10 +471,10 @@ test("two authenticated parties: grant, invite, private isolation, threads, file
         exact: true,
       }),
     ).toBeVisible({ timeout: 25000 });
-    await cp
-      .getByRole("checkbox", { name: "Mention professional", exact: true })
-      .check();
-    await send(cp, "MENTION FIXTURE: Please review the CSV requirements.");
+    await expect(cp.getByRole("checkbox", { name: /Mention/ })).toHaveCount(0);
+    await pp.goto(`/workspace/${e}?tab=files`);
+    await send(cp, "UNREAD FIXTURE: Please review the CSV requirements.");
+    const unreadMessage = checked(await client.db.from("messages").select("id").eq("engagement_id", e).eq("body", "UNREAD FIXTURE: Please review the CSV requirements.").single(), "Unread message");
     await expect
       .poll(
         async () =>
@@ -510,11 +483,17 @@ test("two authenticated parties: grant, invite, private isolation, threads, file
               .from("notifications")
               .select("id")
               .eq("engagement_id", e)
-              .eq("kind", "mention"),
-            "Mention notification",
+              .eq("record_id", unreadMessage.id)
+              .eq("kind", "message")
+              .is("seen_at", null),
+            "Automatic unread notification",
           ).length,
       )
       .toBe(1);
+    await pp.bringToFront();
+    await pp.goto(`/workspace/${e}?tab=discussion`);
+    await pp.getByTestId("discussion-read-marker").scrollIntoViewIfNeeded();
+    await expect.poll(async () => checked(await professional.db.from("notifications").select("id").eq("record_id", unreadMessage.id).is("seen_at", null), "Read notification").length).toBe(0);
     await cp
       .getByRole("link", { name: "Your private assistant", exact: true })
       .click();
@@ -607,25 +586,13 @@ test("two authenticated parties: grant, invite, private isolation, threads, file
     await expect(
       cp.getByText("Tokens are low.", { exact: false }),
     ).toBeVisible();
-    await cp.getByRole("link", { name: "milestones", exact: true }).click();
+    await cp.goto(`/workspace/${e}?tab=milestones`);
     await expect(cp.getByRole("link", { name: "agreement", exact: true })).toHaveCount(0);
     await fillScope(cp);
-    await cp
-      .getByRole("button", { name: "Approve version 1 as client", exact: true })
-      .click();
-    await expect(
-      cp.getByText("Approvals: client", { exact: true }),
-    ).toBeVisible();
-    await pp.getByRole("link", { name: "milestones", exact: true }).click();
-    await pp
-      .getByRole("button", {
-        name: "Approve version 1 as professional",
-        exact: true,
-      })
-      .click();
-    await expect(
-      pp.locator("span.badge").filter({ hasText: /^Accepted$/ }),
-    ).toBeVisible();
+    await expect(cp.getByText("Version 1 approvals: client", { exact: true })).toBeVisible();
+    await pp.goto(`/workspace/${e}?tab=milestones`);
+    await pp.getByRole("button", { name: "Accept version 1", exact: true }).click();
+    await expect(pp.locator("span.badge").filter({ hasText: /^Accepted$/ })).toBeVisible();
     const original = checked(
       await client.db
         .from("engagements")
@@ -635,9 +602,7 @@ test("two authenticated parties: grant, invite, private isolation, threads, file
       "Accepted agreement",
     ).accepted_version_id;
     await fillScope(pp, true);
-    await expect(
-      pp.locator("span.badge").filter({ hasText: /^Proposed$/ }),
-    ).toBeVisible();
+    await expect(pp.getByText("Pending amendment · version 2")).toBeVisible();
     expect(
       checked(
         await client.db
@@ -651,73 +616,10 @@ test("two authenticated parties: grant, invite, private isolation, threads, file
     expect(
       (await client.db.rpc("approve_scope", { s: original })).error,
     ).not.toBeNull();
-    await pp
-      .getByRole("button", {
-        name: "Approve version 2 as professional",
-        exact: true,
-      })
-      .click();
     await cp.reload();
-    await cp
-      .getByRole("button", { name: "Approve version 2 as client", exact: true })
-      .click();
-    await expect(
-      cp.locator("span.badge").filter({ hasText: /^Accepted$/ }),
-    ).toBeVisible();
+    await cp.getByRole("button", { name: "Accept version 2", exact: true }).click();
     await pp.goto(`/workspace/${e}?tab=milestones`);
-    await pp.getByText("Propose a milestone plan", { exact: true }).click();
-    await pp
-      .getByRole("button", { name: "Add milestone", exact: true })
-      .click();
-    await pp
-      .getByLabel("Deliverable", { exact: true })
-      .fill("Dashboard and weekly reports");
-    await pp.getByLabel("Start date", { exact: true }).fill("2026-11-05");
-    await pp.getByLabel("End date", { exact: true }).fill("2026-11-18");
-    await pp
-      .getByLabel("Milestone acceptance criteria", { exact: true })
-      .fill(
-        "CSV totals reconcile and the weekly report includes the same totals.",
-      );
-    await pp
-      .getByLabel("Milestone payment terms", { exact: true })
-      .fill("After delivery acceptance; sandbox payment only.");
-    await pp
-      .getByLabel("Allocated amount (USD)", { exact: true })
-      .fill("1200.00");
-    await pp
-      .getByLabel("Reason and schedule impact", { exact: true })
-      .fill("Make the agreed delivery dates and review criteria explicit.");
-    await pp
-      .getByRole("button", {
-        name: "Submit schedule for dual approval",
-        exact: true,
-      })
-      .click();
-    await expect(
-      pp.getByRole("heading", {
-        name: "Proposed schedule · version 3",
-        exact: true,
-      }),
-    ).toBeVisible();
-    await pp.getByRole("link", { name: "Review and approve this version above" }).click();
-    await pp
-      .getByRole("button", {
-        name: "Approve version 3 as professional",
-        exact: true,
-      })
-      .click();
-    await cp.goto(`/workspace/${e}?tab=milestones`);
-    await cp
-      .getByRole("button", { name: "Approve version 3 as client", exact: true })
-      .click();
-    await pp.goto(`/workspace/${e}?tab=milestones`);
-    await expect(
-      pp.getByRole("heading", {
-        name: "Accepted schedule · version 3",
-        exact: true,
-      }),
-    ).toBeVisible();
+    await pp.getByText("Delivery and progress", { exact: true }).click();
     await pp.getByLabel("Reported progress (%)", { exact: true }).fill("100");
     await pp
       .getByRole("button", { name: "Update progress", exact: true })
@@ -739,6 +641,7 @@ test("two authenticated parties: grant, invite, private isolation, threads, file
       }),
     ).toBeVisible();
     await cp.goto(`/workspace/${e}?tab=milestones`);
+    await cp.getByText("Delivery and progress", { exact: true }).click();
     await cp
       .getByLabel("Review reason tied to the acceptance criteria", {
         exact: true,
@@ -752,12 +655,6 @@ test("two authenticated parties: grant, invite, private isolation, threads, file
     await expect(
       cp.getByText("Delivery accepted", { exact: true }),
     ).toBeVisible();
-    await expect(
-      cp.locator('[data-bryntum-view="gantt"] .b-gantt'),
-    ).toBeVisible({ timeout: 60000 });
-    await expect(
-      cp.locator('[data-bryntum-view="gantt"] .b-gantt-task-wrap'),
-    ).toHaveCount(1);
     await cp.screenshot({
       path: "test-results/integration-milestones.png",
       fullPage: true,
@@ -903,7 +800,8 @@ test("two authenticated parties: grant, invite, private isolation, threads, file
       .getByRole("button", { name: "Save profile and visibility", exact: true })
       .click();
     await expect(pp.getByRole("status")).toHaveText("Saved.");
-    await cp.goto(`/workspace/${e}?tab=overview`);
+    await cp.goto(`/workspace/${e}?tab=discussion`);
+    await cp.getByText("Finish engagement", { exact: true }).first().click();
     await cp
       .getByLabel("Outcome reason", { exact: true })
       .fill("Accepted delivery and handover are complete.");
@@ -916,7 +814,8 @@ test("two authenticated parties: grant, invite, private isolation, threads, file
     await expect(
       cp.getByText("Completion confirmations: client", { exact: true }),
     ).toBeVisible();
-    await pp.goto(`/workspace/${e}?tab=overview`);
+    await pp.goto(`/workspace/${e}?tab=discussion`);
+    await pp.locator("header > details > summary").click();
     await pp
       .getByLabel("Outcome reason", { exact: true })
       .fill("The agreed reporting work and handover are complete.");

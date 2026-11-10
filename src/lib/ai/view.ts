@@ -3,11 +3,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { adminDatabase } from "@/lib/supabase/admin";
 import { reservationBudget, type Price } from "./pricing";
 export async function agentView(db: SupabaseClient, e: string, v: string) {
-  const [credit, runs, price] = await Promise.all([
+  const [credit, runs, price, conversation] = await Promise.all([
     db.rpc("credit_summary", { e, v }),
     db
       .from("agent_runs")
-      .select("id,status,result,created_at,actor_id")
+      .select("id,status,result,created_at,actor_id,output_message_id")
       .eq("engagement_id", e)
       .eq("visibility", v)
       .order("created_at", { ascending: false })
@@ -22,6 +22,15 @@ export async function agentView(db: SupabaseClient, e: string, v: string) {
           .limit(1)
           .single()
       : null,
+    db
+      .from("messages")
+      .select("id,kind,body,created_at,author_id")
+      .eq("engagement_id", e)
+      .eq("visibility", v)
+      .eq("channel", "agent")
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .limit(50),
   ]);
   let budgetNano: string | null = null;
   let setupReason: string | null =
@@ -56,6 +65,9 @@ export async function agentView(db: SupabaseClient, e: string, v: string) {
         .in("id", partialIds)
     : { data: [] };
   return {
+    conversation: conversation.error
+      ? null
+      : conversation.data.slice().reverse(),
     summary: credit.error ? null : credit.data,
     budgetNano,
     setupReason,

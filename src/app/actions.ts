@@ -2,7 +2,7 @@
 import { redirect, unstable_rethrow } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { adminDatabase } from "@/lib/supabase/admin";
 import { safeFilename, validateUpload } from "@/lib/uploads";
 import { authenticated, database } from "@/lib/supabase/server";
@@ -17,6 +17,8 @@ import { activeInvitation } from "@/lib/invitations";
 import { isWorkspaceAdmin } from "@/lib/admin-access";
 import { milestonePlanSchema, changeSchema } from "@/lib/milestones";
 import { parseUsd, scopeSchema, visibilitySchema } from "@/lib/domain";
+import { paypalSetupReason, refreshSeller, onboardingLink, checkoutLink, reconcilePayment, executeRefund } from "@/lib/paypal-service";
+import { PayPalError } from "@/lib/paypal-api";
 const id = (f: FormData) => z.uuid().parse(f.get("id"));
 async function command(name: string, args: Record<string, unknown>) {
   const { db } = await authenticated();
@@ -40,11 +42,19 @@ export async function login(f: FormData) {
   const profileType = signup
     ? invited?.role || z.enum(["client", "professional"]).parse(f.get("profileType"))
     : null;
+  let hourlyRate: number | null = null;
+  if (signup && profileType === "professional" && f.get("hourlyRate")) {
+    try {
+      hourlyRate = z.number().int().min(1).max(100000000).parse(parseUsd(f.get("hourlyRate")));
+    } catch {
+      redirect(`/login?mode=signup${invitationQuery}&notice=Enter+a+valid+hourly+rate+in+USD.`);
+    }
+  }
   if (signup && invited && invitation) {
     const admin = adminDatabase();
     const created = await admin.auth.admin.createUser({
       email, password, email_confirm: true,
-      user_metadata: { profile_type: invited.role },
+      user_metadata: { profile_type: invited.role, hourly_rate_cents: hourlyRate },
     });
     if (created.error) {
       if (!["email_exists", "user_already_exists"].includes(created.error.code || ""))
@@ -62,6 +72,7 @@ export async function login(f: FormData) {
     }
     const signedIn = await db.auth.signInWithPassword({ email, password });
     if (signedIn.error) redirect(`/login?mode=login${invitationQuery}&notice=Sign+in+with+your+existing+password+to+continue.`);
+    if (hourlyRate !== null) await command("set_hourly_rate", { cents: hourlyRate });
     const acceptance = new FormData();
     acceptance.set("token", invitation);
     await acceptInvite(acceptance);
@@ -73,7 +84,7 @@ export async function login(f: FormData) {
           password,
           options: {
             emailRedirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback${invitation ? `?invitation=${invitation}` : ""}`,
-            data: { profile_type: profileType },
+            data: { profile_type: profileType, hourly_rate_cents: hourlyRate },
           },
         })
       : await db.auth.signInWithPassword({ email, password });
@@ -119,7 +130,7 @@ export async function postMessage(f: FormData) {
   const v = visibilitySchema.parse(f.get("visibility"));
   const b = z.string().trim().min(1).max(30000).parse(f.get("body"));
   const parent = f.get("parent") ? z.uuid().parse(f.get("parent")) : null;
-  const mentions = z.array(z.uuid()).max(2).parse(f.getAll("mention"));
+  const mentions: string[] = [];
   const file = f.get("file");
   if (file instanceof File && file.size > 0) {
     await uploadMessageFile(e, v, b, parent, mentions, file);
@@ -238,6 +249,76 @@ export async function createPaymentRequest(f: FormData) {
   });
   revalidatePath(`/workspace/${e}`);
 }
+export async function requestAdhocPayment(f: FormData) {
+  const e = id(f);
+  await command("create_adhoc_payment_request", { e, category: z.enum(["bonus", "hourly", "adhoc"]).parse(f.get("category")),
+    description: z.string().trim().min(1).max(2000).parse(f.get("description")), cents: parseUsd(f.get("amount")), k: z.uuid().parse(f.get("operationKey")) });
+  revalidatePath(`/workspace/${e}`);
+}
+async function paymentMember(e: string, role?: string) {
+  const auth = await authenticated();
+  const member = await auth.db.from("memberships").select("role").eq("engagement_id", e).eq("user_id", auth.user.id).single();
+  if (member.error || (role && member.data?.role !== role)) throw new WorkspaceActionError("You do not have permission for this payment action.");
+  return auth;
+}
+export async function connectPayPalSeller(f: FormData) {
+  const e = id(f), { user } = await paymentMember(e, "professional");
+  let url: string;
+  try { url = await onboardingLink(user.id, e); } catch (error) { if (error instanceof PayPalError) throw new WorkspaceActionError(error.message); throw error; }
+  redirect(url);
+}
+export async function verifyPayPalSeller(f: FormData) {
+  const e = id(f), { user } = await paymentMember(e, "professional");
+  await refreshSeller(user.id);
+  revalidatePath(`/workspace/${e}`);
+}
+export async function requestMilestonePayment(f: FormData) {
+  const e = id(f);
+  await command("request_milestone_payment", { e, t: z.uuid().parse(f.get("task")), k: z.uuid().parse(f.get("operationKey")) });
+  revalidatePath(`/workspace/${e}`);
+}
+export async function payWithPayPal(f: FormData) {
+  const e = id(f), { db } = await paymentMember(e, "client");
+  if (paypalSetupReason()) throw new WorkspaceActionError(paypalSetupReason()!);
+  let requestId: string;
+  if (f.get("task")) requestId = await command("request_milestone_payment", { e, t: z.uuid().parse(f.get("task")), k: z.uuid().parse(f.get("operationKey")) });
+  else requestId = z.uuid().parse(f.get("request"));
+  const request = await db.from("payment_requests").select("payee_id,engagement_id").eq("id", requestId).eq("engagement_id", e).single();
+  if (request.error) throw new WorkspaceActionError("Payment request unavailable.");
+  await refreshSeller(request.data.payee_id);
+  const p = await command("begin_paypal_payment", { q: requestId, k: z.uuid().parse(f.get("operationKey")) });
+  let url: string;
+  try { url = await checkoutLink(p); } catch (error) { if (error instanceof PayPalError) throw new WorkspaceActionError(error.message); throw error; }
+  revalidatePath(`/workspace/${e}`);
+  redirect(url);
+}
+export async function updatePayPalPayment(f: FormData) {
+  const e = id(f), { db, user } = await paymentMember(e);
+  const p = z.uuid().parse(f.get("payment"));
+  const payment = await db.from("payment_transactions").select("payer_id,payee_id").eq("id", p).eq("engagement_id", e).single();
+  if (payment.error) throw new WorkspaceActionError("Payment unavailable.");
+  const capture = f.get("capture") === "yes";
+  if (capture && payment.data.payer_id !== user.id) throw new WorkspaceActionError("Only the client can complete a payment.");
+  try { await reconcilePayment(p, capture, capture ? () => command("authorize_paypal_capture", { p }) : undefined); } catch (error) { if (error instanceof PayPalError) throw new WorkspaceActionError(error.message); throw error; }
+  revalidatePath(`/workspace/${e}`);
+}
+export async function refundPayPalPayment(f: FormData) {
+  const e = id(f), { db, user } = await paymentMember(e, "professional");
+  const seller = await refreshSeller(user.id);
+  if (!seller.refunds) throw new WorkspaceActionError("PayPal refund permission is missing. Reconnect the sandbox seller.");
+  let refundId: string;
+  if (f.get("refund")) {
+    refundId = z.uuid().parse(f.get("refund"));
+    const refund = await db.from("payment_refunds").select("actor_id").eq("id", refundId).eq("engagement_id", e).single();
+    if (refund.error || refund.data.actor_id !== user.id) throw new WorkspaceActionError("Refund unavailable.");
+  } else {
+    const payment = await db.from("payment_transactions").select("id").eq("id",z.uuid().parse(f.get("payment"))).eq("engagement_id",e).eq("payee_id",user.id).single();
+    if(payment.error) throw new WorkspaceActionError("Payment unavailable.");
+    refundId = await command("begin_paypal_refund", { p: z.uuid().parse(f.get("payment")), cents: parseUsd(f.get("amount")), reason: z.string().trim().min(1).max(2000).parse(f.get("reason")), k: z.uuid().parse(f.get("operationKey")) });
+  }
+  try { await executeRefund(refundId); } catch (error) { if (error instanceof PayPalError) throw new WorkspaceActionError(error.message); throw error; }
+  revalidatePath(`/workspace/${e}`);
+}
 export async function acceptInvite(f: FormData) {
   const token = z.string().regex(/^[a-f0-9]{64}$/).parse(f.get("token"));
   const session = await database();
@@ -250,13 +331,20 @@ export async function acceptInvite(f: FormData) {
   const invitation = await activeInvitation(token);
   if (invitation && invitation.email.toLowerCase() !== currentUser.email?.toLowerCase())
     redirect(`/login?mode=signup&invitation=${token}`);
-  const { db, user } = await authenticated();
   const e = await command("accept_invitation", {
     t: z
       .string()
       .regex(/^[a-f0-9]{64}$/)
       .parse(f.get("token")),
   });
+  await finishInvitation(e);
+}
+export async function acceptReceivedInvite(f: FormData) {
+  const e = await command("accept_received_invitation", { invitation_id: z.uuid().parse(f.get("invitation")) });
+  await finishInvitation(e);
+}
+async function finishInvitation(e: string) {
+  const { db, user } = await authenticated();
   const { data: membership, error: membershipError } = await db
     .from("memberships")
     .select("role")
@@ -419,6 +507,63 @@ export async function proposeMilestones(f: FormData) {
   });
   revalidatePath(`/workspace/${e}`);
 }
+export async function proposeSimpleMilestones(f: FormData) {
+  const e = id(f);
+  const expected = f.get("expected") ? z.uuid().parse(f.get("expected")) : null;
+  const base = f.get("base") ? z.uuid().parse(f.get("base")) : null;
+  const { db } = await authenticated();
+  const project = await db.from("engagements").select("accepted_version_id").eq("id", e).single();
+  if (project.error) throw new WorkspaceActionError("Engagement unavailable.");
+  if (project.data.accepted_version_id !== base) throw new WorkspaceActionError("Accepted agreement changed; refresh");
+  const previous = expected ? await db.from("scope_versions").select("content").eq("id", expected).eq("engagement_id", e).single() : { data: null, error: null };
+  if (previous.error) throw new WorkspaceActionError("Stale version; refresh before submitting");
+  const rows = z.array(z.object({ description: z.string().trim().min(1).max(5000), amountUsd: z.string(), targetDate: z.iso.date() })).min(1).max(30)
+    .parse(JSON.parse(z.string().max(200000).parse(f.get("milestones"))));
+  const today = new Date().toISOString().slice(0, 10);
+  const milestones = milestonePlanSchema.parse(rows.map((row) => ({
+    key: randomUUID(), title: row.description.slice(0, 200), owner: "professional",
+    startDate: row.targetDate < today ? row.targetDate : today, endDate: row.targetDate,
+    acceptanceCriteria: row.description, paymentTerms: "Due on client acceptance of this milestone.",
+    amountCents: parseUsd(row.amountUsd), dependencies: [],
+  })));
+  const priceCents = milestones.reduce((sum, milestone) => sum + milestone.amountCents, 0);
+  const prior = previous.data?.content || {};
+  const content = scopeSchema.parse({
+    ...prior,
+    deliverables: rows.map((row, index) => `${index + 1}. ${row.description}`).join("\n"),
+    exclusions: prior.exclusions || "Work outside these milestones requires a separately approved revision.",
+    assumptions: prior.assumptions || "Milestone amounts are fixed prices; hourly rates inform estimates only.",
+    responsibilities: prior.responsibilities || "Provide necessary inputs and review milestone deliveries.",
+    acceptanceCriteria: rows.map((row, index) => `${index + 1}. Client reviews delivery against: ${row.description}`).join("\n"),
+    priceCents, currency: "USD", paymentTerms: "Each milestone amount is due when the client accepts its delivery.",
+    schedule: rows.map((row, index) => `Milestone ${index + 1}: ${row.targetDate}`).join("\n"),
+    milestones,
+    change: base ? { baseVersion: base, reason: z.string().trim().min(1).max(3000).parse(f.get("reason")), affectedReferences: "Milestone deliverables, prices and target deadlines", costImpact: `Proposed total USD ${(priceCents / 100).toFixed(2)}; requires both parties' approval.`, scheduleImpact: "Target deadlines are listed per milestone in this revision." } : undefined,
+  });
+  await command("submit_scope", { e, c: content, expected });
+  revalidatePath(`/workspace/${e}`);
+}
+export async function submitIndividualMilestones(f: FormData) {
+  const e = id(f);
+  const rows = z.array(z.object({
+    description: z.string().trim().min(1).max(5000),
+    acceptanceCriteria: z.string().trim().min(1).max(5000),
+    responsibilities: z.string().trim().max(5000),
+    amountUsd: z.string(), targetDate: z.iso.date(),
+  })).min(1).max(30).parse(JSON.parse(z.string().max(500000).parse(f.get("milestones"))));
+  await command("submit_individual_milestones", {
+    e, rows: rows.map(({ amountUsd, ...row }) => ({ ...row, amountCents: parseUsd(amountUsd) })),
+    k: z.uuid().parse(f.get("operationKey")),
+    m: f.get("milestone") ? z.uuid().parse(f.get("milestone")) : null,
+    expected: f.get("expected") ? z.uuid().parse(f.get("expected")) : null,
+    reason: z.string().trim().max(3000).parse(f.get("reason") || ""),
+  });
+  revalidatePath(`/workspace/${e}`);
+}
+export async function acceptMilestone(f: FormData) {
+  await command("accept_milestone", { v: z.uuid().parse(f.get("version")) });
+  revalidatePath(`/workspace/${id(f)}`);
+}
 export async function reportProgress(f: FormData) {
   await command("report_task_progress", {
     t: z.uuid().parse(f.get("task")),
@@ -548,6 +693,7 @@ export async function addMeetingNote(f: FormData) {
 }
 export async function saveProfile(f: FormData) {
   const { user } = await authenticated();
+  const hourlyRate = f.get("hourlyRate") ? z.number().int().min(1).max(100000000).parse(parseUsd(f.get("hourlyRate"))) : null;
   await command("update_profile", {
     n: z.string().trim().min(1).max(100).parse(f.get("displayName")),
     company: z.string().max(160).parse(f.get("company")),
@@ -565,6 +711,9 @@ export async function saveProfile(f: FormData) {
           .filter(Boolean),
       ),
     is_public: f.get("isPublic") === "yes",
+  });
+  if (f.has("hourlyRate")) await command("set_hourly_rate", {
+    cents: hourlyRate,
   });
   revalidatePath("/profile");
   revalidatePath(`/people/${user.id}`);
@@ -667,6 +816,9 @@ export async function workspaceFormAction(
     "meeting-cancel": cancelMeeting,
     "meeting-note": addMeetingNote,
     "milestone-plan": proposeMilestones,
+    "simple-milestones": proposeSimpleMilestones,
+    "individual-milestones": submitIndividualMilestones,
+    "accept-milestone": acceptMilestone,
     progress: reportProgress,
     delivery: submitDelivery,
     "delivery-review": reviewDelivery,
@@ -683,7 +835,15 @@ export async function workspaceFormAction(
     "concern-update": addConcernUpdate,
     "concern-acknowledge": acknowledgeConcern,
     "payment-request": createPaymentRequest,
+    "adhoc-payment-request": requestAdhocPayment,
+    "milestone-payment-request": requestMilestonePayment,
+    "paypal-connect": connectPayPalSeller,
+    "paypal-verify-seller": verifyPayPalSeller,
+    "paypal-pay": payWithPayPal,
+    "paypal-status": updatePayPalPayment,
+    "paypal-refund": refundPayPalPayment,
     accept: acceptInvite,
+    "accept-received": acceptReceivedInvite,
     download: downloadFile,
     read: markRead,
     seen: markNotificationSeen,

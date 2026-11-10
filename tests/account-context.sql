@@ -31,3 +31,22 @@ do $$begin
 end $$;
 reset role;
 \echo 'Account default, switching, and engagement authority assertions passed'
+set role authenticated;
+select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000002',false);
+select public.set_hourly_rate(7500);
+do $$begin
+ if (select hourly_rate_cents from public.profiles where id=auth.uid())<>7500 then raise exception 'Hourly rate did not persist';end if;
+ begin perform public.set_hourly_rate(-1);raise exception 'Negative hourly rate allowed';
+ exception when others then if sqlerrm<>'Invalid hourly rate' then raise;end if;end;
+end $$;
+select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',false);
+do $$begin
+ if public.engagement_hourly_rate((select id from public.engagements where title='Reporting dashboard'))<>7500 then raise exception 'Counterparty rate unavailable';end if;
+end $$;
+select set_config('test.rate_engagement',(select id::text from public.engagements where title='Reporting dashboard'),false);
+select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000003',false);
+do $$begin
+ begin perform public.engagement_hourly_rate(current_setting('test.rate_engagement')::uuid);raise exception 'Rate leaked across engagements';
+ exception when others then if sqlerrm<>'Forbidden' then raise;end if;end;
+end $$;
+reset role;

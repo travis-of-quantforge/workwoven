@@ -1,11 +1,8 @@
-import { GanttView } from "./bryntum/views";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import Link from "next/link";
 import { randomUUID } from "node:crypto";
 import { ActionForm } from "./action-form";
 import { Button } from "./ui/button";
-import { ScheduleEditor } from "./schedule-editor";
-import { milestonePlanSchema } from "@/lib/milestones";
 import { usd } from "@/lib/domain";
 type Scope = { id: string; number: number; content: Record<string, unknown> };
 export async function MilestoneView({
@@ -15,6 +12,8 @@ export async function MilestoneView({
   latest,
   accepted,
   status,
+  taskId,
+  milestoneNumber,
 }: {
   db: SupabaseClient;
   id: string;
@@ -22,12 +21,18 @@ export async function MilestoneView({
   latest: Scope | undefined;
   accepted: string | null;
   status: string;
+  editable?: boolean;
+  taskId?: string;
+  milestoneNumber?: number;
 }) {
-  const { data: tasks, error } = await db
+  const taskQuery = db
     .from("milestone_tasks")
     .select("*")
     .eq("engagement_id", id)
     .order("position");
+  const { data: tasks, error } = await (taskId
+    ? taskQuery.eq("id", taskId)
+    : taskQuery);
   if (error)
     return (
       <p className="notice">
@@ -68,68 +73,19 @@ export async function MilestoneView({
       ? db.from("delivery_files").select("*").in("submission_id", subs)
       : { data: [] },
   ]);
-  const initial = milestonePlanSchema.safeParse(
-    latest?.content.milestones || [],
-  );
   const groups = [
     ...new Set([accepted, latest?.id, ...versions].filter(Boolean)),
   ] as string[];
   return (
     <div className="stack">
-      <section className="panel">
-        <p className="eyebrow">Delivery plan</p>
-        <h2 className="mt-3">Milestones and submissions</h2>
-        <p className="muted mt-3">
-          Accepted schedules are immutable. Progress is an owner’s report;
-          delivery acceptance and payment are separate facts. Completing a task
-          does not charge anyone.
-        </p>
-        <p className="muted text-xs mt-4">
-          Bryntum Gantt · evaluation licence. The timeline is read-only; use the
-          proposal form to change dates or dependencies, then approve the new
-          agreement version.
-        </p>
-      </section>
-      {!tasks?.length && (
-        <p className="panel">
-          No milestone plan yet. Draft the milestone agreement above, then
-          propose deliverables and dates here.
-        </p>
-      )}
       {groups.map((version) => {
         const rows = (tasks || []).filter((t) => t.version_id === version);
         if (!rows.length) return null;
         const current = version === accepted,
           proposed = !current && version === latest?.id;
-        const heading = `${current ? "Accepted" : proposed ? "Proposed" : "Historical"} schedule · version ${scopeRows.data?.find((s) => s.id === version)?.number}`;
+        const heading = `Delivery history · version ${scopeRows.data?.find((s) => s.id === version)?.number}`;
         const content = (
           <div className="stack mt-4">
-            {(current || proposed) && (
-              <GanttView
-                key={version + JSON.stringify(progress.data)}
-                proposed={proposed}
-                tasks={rows.map((t) => ({
-                  id: t.id,
-                  key: t.task_key,
-                  name: t.title,
-                  startDate: t.start_date,
-                  endDate: t.end_date,
-                  owner: t.owner,
-                  percentDone:
-                    progress.data?.find((p) => p.task_id === t.id)?.percent ||
-                    0,
-                }))}
-                dependencies={(deps.data || [])
-                  .filter((d) => d.version_id === version)
-                  .flatMap((d) => {
-                    const from = rows.find(
-                        (t) => t.task_key === d.predecessor_key,
-                      )?.id,
-                      to = rows.find((t) => t.task_key === d.task_key)?.id;
-                    return from && to ? [{ from, to }] : [];
-                  })}
-              />
-            )}
             {rows.map((t) => {
               const predecessors = (deps.data || [])
                 .filter(
@@ -152,31 +108,39 @@ export async function MilestoneView({
                   className={`panel ${proposed ? "border-dashed" : ""}`}
                 >
                   <div className="flex flex-wrap justify-between gap-3">
-                    <h3>
-                      {t.position}. {t.title}
-                    </h3>
+                    {!taskId && (
+                      <h3>
+                        {t.position}. {t.title}
+                      </h3>
+                    )}
                     <span className="badge">
                       {acceptedDelivery
                         ? "Delivery accepted"
                         : `Progress ${reported?.percent || 0}%`}
                     </span>
                   </div>
-                  <p className="muted text-xs mt-3">
-                    {t.start_date} → {t.end_date} · {t.owner} owns this task ·{" "}
-                    {usd(t.amount_cents)} allocated
-                  </p>
-                  <p className="mt-4">
-                    <strong>Acceptance criteria:</strong>{" "}
-                    {t.acceptance_criteria}
-                  </p>
+                  {!taskId && (
+                    <p className="muted text-xs mt-3">
+                      Target deadline: {t.end_date} · {t.owner} owns this task ·{" "}
+                      {usd(t.amount_cents)} allocated
+                    </p>
+                  )}
+                  {!taskId && (
+                    <p className="mt-4">
+                      <strong>Acceptance criteria:</strong>{" "}
+                      {t.acceptance_criteria}
+                    </p>
+                  )}
                   <p className="mt-3">
                     <strong>Payment terms:</strong> {t.payment_terms}
                   </p>
-                  <p className="muted text-sm mt-3">
-                    Predecessors:{" "}
-                    {predecessors.map((p) => p?.title).join(", ") || "None"}.
-                    Payment status: no verified payment recorded.
-                  </p>
+                  {!taskId && (
+                    <p className="muted text-sm mt-3">
+                      Predecessors:{" "}
+                      {predecessors.map((p) => p?.title).join(", ") || "None"}.
+                      Payment status: no verified payment recorded.
+                    </p>
+                  )}
                   {current && status === "active" && t.owner === role && (
                     <ActionForm
                       actionName="progress"
@@ -221,11 +185,10 @@ export async function MilestoneView({
                             {new Date(s.created_at).toLocaleString("en-GB", {
                               timeZone: "UTC",
                             })}{" "}
-                            UTC · agreement version{" "}
-                            {
+                            UTC · milestone version{" "}
+                            {milestoneNumber ||
                               scopeRows.data?.find((v) => v.id === version)
-                                ?.number
-                            }
+                                ?.number}
                           </p>
                           <p className="whitespace-pre-wrap break-words">
                             {s.message}
@@ -375,7 +338,7 @@ export async function MilestoneView({
         );
         return current || proposed ? (
           <section key={version}>
-            <h2>{heading}</h2>
+            {!taskId && <h2>{heading}</h2>}
             {proposed && (
               <Link
                 className="underline text-sm"
@@ -393,15 +356,6 @@ export async function MilestoneView({
           </details>
         );
       })}
-      {latest && ["discussion", "active"].includes(status) && (
-        <ScheduleEditor
-          key={latest.id}
-          id={id}
-          expected={latest.id}
-          base={accepted}
-          initial={initial.success ? initial.data : []}
-        />
-      )}
     </div>
   );
 }
