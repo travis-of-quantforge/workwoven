@@ -82,10 +82,52 @@ test("contract creation, dual approval, private isolation and a grounded shared 
     expect(
       (await pro.db.rpc("accept_invitation", { t: invite.data })).error,
     ).toBeNull();
+    // Tab changes must keep the shell and live subscription mounted, including
+    // while the server response is delayed (no full-workspace fallback).
+    await client.page.evaluate(() => {
+      const header = document.querySelector("main > header")!;
+      header.setAttribute("data-navigation-test", "preserved");
+      const observer = new MutationObserver(() => {
+        if (!header.isConnected) document.documentElement.dataset.shellRemoved = "true";
+        if (!header.checkVisibility()) document.documentElement.dataset.shellHidden = "true";
+        if (/Loading your workspace|Loading tab…/.test(document.body.innerText))
+          document.documentElement.dataset.loadingFlashed = "true";
+      });
+      observer.observe(document.body, { childList: true, attributes: true, subtree: true });
+    });
+    let releaseTab!: () => void;
+    let requestStarted!: () => void;
+    const tabGate = new Promise<void>((resolve) => { releaseTab = resolve; });
+    const tabRequested = new Promise<void>((resolve) => { requestStarted = resolve; });
+    await client.page.route("**/workspace/**", async (route) => {
+      if (route.request().method() === "GET" && route.request().url().includes("tab=contract")) {
+        requestStarted();
+        await tabGate;
+      }
+      await route.continue();
+    });
     await client.page
       .getByRole("link", { name: "contract", exact: true })
       .click();
+    try {
+      await tabRequested;
+      await expect(client.page.getByRole("status", { name: "Loading tab", exact: true })).toBeVisible();
+      await expect(client.page.getByRole("heading", { name: "Discussion", exact: true })).toBeVisible();
+      await expect(client.page.getByRole("button", { name: "Send message", exact: true })).toBeVisible();
+      await expect(client.page.locator("main > header")).toBeVisible();
+    } finally { releaseTab(); }
     await expect(client.page.getByLabel("Contract text")).toHaveValue(body);
+    await expect(client.page.locator("main > header")).toHaveAttribute("data-navigation-test", "preserved");
+    await expect(client.page.locator("html")).not.toHaveAttribute("data-shell-removed", "true");
+    await expect(client.page.locator("html")).not.toHaveAttribute("data-shell-hidden", "true");
+    await expect(client.page.locator("html")).not.toHaveAttribute("data-loading-flashed", "true");
+    await client.page.unroute("**/workspace/**");
+    for (const [tab, heading] of [["milestones", "Milestones"], ["files", "Shared files"], ["payments", "Payments"], ["contract", "Contract"]]) {
+      await client.page.getByRole("link", { name: tab, exact: true }).click();
+      await expect(client.page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
+      await expect(client.page.locator("html")).not.toHaveAttribute("data-shell-hidden", "true");
+      await expect(client.page.locator("html")).not.toHaveAttribute("data-loading-flashed", "true");
+    }
     await client.page
       .getByRole("button", { name: "Submit contract proposal", exact: true })
       .click();
@@ -97,13 +139,22 @@ test("contract creation, dual approval, private isolation and a grounded shared 
         exact: false,
       }),
     ).toBeVisible();
-    await pro.page.goto(`/workspace/${e}?tab=contract`);
+    // The professional is still on their home page: the live bell must receive
+    // the client's first approval without navigation or a manual refresh.
+    await pro.page.getByRole("button", { name: /^Notifications/ }).click();
+    const contractNotice = pro.page.getByRole("link", { name: "Client approved contract version 1", exact: true });
+    await expect(contractNotice).toBeVisible();
+    await expect(contractNotice).toHaveAttribute("href", /tab=contract&version=/);
+    await contractNotice.click();
     await pro.page
       .getByRole("button", { name: "Approve contract version 1", exact: true })
       .click();
     await expect(
       pro.page.getByText("Accepted version 1", { exact: false }),
     ).toBeVisible();
+    await client.page.getByRole("button", { name: /^Notifications/ }).click();
+    await expect(client.page.getByRole("link", { name: "Professional approved contract version 1", exact: true })).toBeVisible();
+    await client.page.getByRole("dialog", { name: "Notifications", exact: true }).getByRole("button", { name: "Close", exact: true }).click();
     const contract = await client.db
       .from("engagement_contracts")
       .select("accepted_version_id")

@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { randomUUID, randomBytes } from "node:crypto";
+import { randomUUID, randomBytes, createHash } from "node:crypto";
 import fs from "node:fs";
 import { cleanupIntegrationRun } from "../../scripts/integration-fixtures.mjs";
 
@@ -164,37 +164,19 @@ test("two authenticated parties: grant, invite, private isolation, threads, file
     await cp
       .getByRole("link", { name: "Your private assistant", exact: true })
       .click();
-    await cp
-      .getByLabel("Private note · never shown to the counterparty")
-      .fill(
-        "PRIVATE FIXTURE: internal budget ceiling must remain confidential.",
-      );
-    await cp.getByRole("button", { name: "Send message", exact: true }).click();
-    await expect(
-      cp.getByText(
-        "PRIVATE FIXTURE: internal budget ceiling must remain confidential.",
-        { exact: true },
-      ),
-    ).toBeVisible();
-    await cp.locator("#message-file").setInputFiles({
-      name: "private-planning.txt",
-      mimeType: "text/plain",
-      buffer: Buffer.from("PRIVATE FIXTURE: internal planning notes."),
-    });
-    await cp
-      .getByLabel("Private note · never shown to the counterparty")
-      .fill("Private planning file for this engagement.");
-    await cp.getByRole("button", { name: "Send message", exact: true }).click();
-    await expect(
-      cp.getByText("Private planning file for this engagement.", { exact: true }),
-    ).toBeVisible();
-    await expect(cp.getByRole("link", { name: "Open attachment: private-planning.txt" })).toBeVisible();
-    await cp
-      .getByLabel("Private note · never shown to the counterparty")
-      .fill("UNSENT PRIVATE DRAFT must be cleared on context switch.");
-    await cp
-      .getByLabel("Your question", { exact: true })
-      .fill("UNSENT PRIVATE AGENT question");
+    // Historical private notes/files remain readable in the central assistant;
+    // new assistant messages use the separately tested metered agent endpoint.
+    await expect(cp.getByLabel("Message your private assistant",{exact:true})).toBeVisible();
+    checked(await client.db.rpc("post_discussion_message", {e,v:"client",b:"PRIVATE FIXTURE: internal budget ceiling must remain confidential."}), "Private historical note");
+    const privateBytes = Buffer.from("PRIVATE FIXTURE: internal planning notes.");
+    const privatePath = checked(await client.db.rpc("register_attachment", {e,v:"client",n:"private-planning.txt",mime:"text/plain",bytes:privateBytes.length}), "Register private fixture file");
+    checked(await client.db.storage.from("engagement-files").upload(privatePath,privateBytes,{contentType:"text/plain",upsert:false}), "Upload private fixture file");
+    checked(await client.db.rpc("confirm_attachment_with_message", {p:privatePath,b:"Private planning file for this engagement.",parent:null,mentions:[]}), "Confirm private fixture file");
+    expect((await admin.rpc("store_attachment_text", {p:privatePath,actor:client.id,body:privateBytes.toString("utf8"),hash:createHash("sha256").update(privateBytes).digest("hex"),is_complete:true})).error).toBeNull();
+    await cp.reload();
+    await expect(cp.getByText("PRIVATE FIXTURE: internal budget ceiling must remain confidential.",{exact:true})).toBeVisible();
+    await expect(cp.getByRole("link", {name:"Open attachment: private-planning.txt",exact:true})).toBeVisible();
+    await cp.getByLabel("Message your private assistant",{exact:true}).fill("UNSENT PRIVATE AGENT question");
     await cp
       .getByRole("link", { name: "Shared workspace", exact: true })
       .click();
@@ -497,18 +479,9 @@ test("two authenticated parties: grant, invite, private isolation, threads, file
     await cp
       .getByRole("link", { name: "Your private assistant", exact: true })
       .click();
-    await cp
-      .getByLabel("Selected content")
-      .fill("We will supply weekly UTF-8 CSV exports.");
-    await cp.getByRole("button", { name: "Preview shared copy" }).click();
-    await expect(
-      cp.getByText("We will supply weekly UTF-8 CSV exports.", { exact: true }),
-    ).toBeVisible();
-    const sharing = cp
-      .locator("form")
-      .filter({ has: cp.getByRole("button", { name: "Confirm and share" }) });
-    await sharing.getByRole("button", { name: "Confirm and share" }).click();
-    await expect(sharing.getByRole("status")).toHaveText("Saved.");
+    await cp.getByRole("link",{name:"Shared workspace",exact:true}).click();
+    await cp.getByLabel("Message",{exact:true}).fill("We will supply weekly UTF-8 CSV exports.");
+    await cp.getByRole("button",{name:"Send message",exact:true}).click();
     await expect(
       pp.getByText("We will supply weekly UTF-8 CSV exports.", { exact: true }),
     ).toBeVisible({ timeout: 25000 });
@@ -589,10 +562,12 @@ test("two authenticated parties: grant, invite, private isolation, threads, file
     await cp.goto(`/workspace/${e}?tab=milestones`);
     await expect(cp.getByRole("link", { name: "agreement", exact: true })).toHaveCount(0);
     await fillScope(cp);
+    await cp.locator("article[id^=milestone-] > details > summary").first().click();
     await expect(cp.getByText("Version 1 approvals: client", { exact: true })).toBeVisible();
     await pp.goto(`/workspace/${e}?tab=milestones`);
+    await pp.locator("article[id^=milestone-] > details > summary").first().click();
     await pp.getByRole("button", { name: "Accept version 1", exact: true }).click();
-    await expect(pp.locator("span.badge").filter({ hasText: /^Accepted$/ })).toBeVisible();
+    await expect(pp.locator("[data-active=true]").getByText("Active",{exact:true})).toBeVisible();
     const original = checked(
       await client.db
         .from("engagements")
@@ -653,7 +628,7 @@ test("two authenticated parties: grant, invite, private isolation, threads, file
       .getByRole("button", { name: "Accept delivery 1", exact: true })
       .click();
     await expect(
-      cp.getByText("Delivery accepted", { exact: true }),
+      cp.locator("article[id^=milestone-] > details > summary").getByText("Completed", { exact: true }),
     ).toBeVisible();
     await cp.screenshot({
       path: "test-results/integration-milestones.png",

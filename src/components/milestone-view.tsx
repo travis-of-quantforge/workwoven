@@ -1,9 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import Link from "next/link";
 import { randomUUID } from "node:crypto";
-import { ActionForm } from "./action-form";
+import { ActionForm, ActionSubmitButton } from "./action-form";
 import { Button } from "./ui/button";
 import { usd } from "@/lib/domain";
+import { DeliveryFileInput } from "./delivery-file-input";
 type Scope = { id: string; number: number; content: Record<string, unknown> };
 export async function MilestoneView({
   db,
@@ -310,7 +311,7 @@ export async function MilestoneView({
                           />
                           <fieldset>
                             <legend className="text-sm mb-3">
-                              Shared files (optional)
+                              Existing shared files (optional)
                             </legend>
                             {files.data?.map((f) => (
                               <label key={f.id} className="mention-option">
@@ -323,11 +324,14 @@ export async function MilestoneView({
                               </label>
                             ))}
                           </fieldset>
+                          <label htmlFor={`delivery-upload-${t.id}`}>Upload a delivery file (optional)</label>
+                          <DeliveryFileInput id={`delivery-upload-${t.id}`} />
+                          <p className="muted text-xs">Up to 20 MB. Text, CSV, PDF, PNG or JPEG. The file is shared with the client when this delivery is submitted.</p>
                           <p className="muted text-xs">
                             This creates a timestamped delivery version. Casual
                             attachments alone do not submit delivery.
                           </p>
-                          <Button>Submit delivery for review</Button>
+                          <ActionSubmitButton pendingLabel="Submitting delivery…">Submit delivery for review</ActionSubmitButton>
                         </ActionForm>
                       </details>
                     )}

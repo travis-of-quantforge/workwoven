@@ -29,6 +29,13 @@ select public.accept_milestone(:'v'); -- Author cannot accept for the counterpar
 select set_config('request.jwt.claim.sub','99000000-0000-4000-8000-000000000002',false);
 select public.accept_milestone(:'v');
 select public.accept_milestone(:'v'); -- Replay.
+reset role;
+do $$begin
+ if(select count(*) from public.notifications where record_id=current_setting('test.individual_v')::uuid and kind='milestone_approval')<>1 then raise exception 'Missing or duplicate milestone approval notice';end if;
+ if not exists(select 1 from public.notifications where record_id=current_setting('test.individual_v')::uuid and kind='milestone_approval' and recipient_id='99000000-0000-4000-8000-000000000001' and title like 'Professional approved milestone version 1:%') then raise exception 'Milestone approval recipient/title incorrect';end if;
+ if exists(select 1 from public.notifications where engagement_id=current_setting('test.individual_e')::uuid and kind='agreement_accepted') then raise exception 'Duplicate aggregate acceptance notification';end if;
+end $$;
+set role authenticated;
 select accepted_version_id as snapshot from public.engagements where id=:'e' \gset
 select task_id as task from public.milestone_versions where id=:'v' \gset
 select public.create_payment_request(:'e',:'snapshot',:'task','99000000-0000-4000-8000-000000000011') as payment \gset

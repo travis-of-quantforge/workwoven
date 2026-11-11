@@ -85,6 +85,7 @@ export async function cleanupIntegrationRun(run, admin) {
  delete from public.milestone_approvals where version_id in(select v.id from public.milestone_versions v join public.milestones m on m.id=v.milestone_id where m.engagement_id in(select id from fixture_engagements));
  delete from public.milestone_versions where milestone_id in(select id from public.milestones where engagement_id in(select id from fixture_engagements));
  delete from public.milestones where engagement_id in(select id from fixture_engagements);
+ update public.attachments set delivery_task_id=null where engagement_id in(select id from fixture_engagements);
  delete from public.milestone_tasks where engagement_id in(select id from fixture_engagements);
  delete from public.approvals where version_id in(select id from public.scope_versions where engagement_id in(select id from fixture_engagements));
  update public.engagements set accepted_version_id=null where id in(select id from fixture_engagements);

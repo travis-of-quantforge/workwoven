@@ -6,12 +6,12 @@ import { Button } from "./ui/button";
 import { ActionForm } from "./action-form";
 import {
   agentResultSchema,
-  agentModeSchema,
   milestoneAgentResultSchema,
   type AgentResult,
 } from "@/lib/ai/contracts";
 import { formatTokens } from "@/lib/ai/pricing";
 import { usd } from "@/lib/domain";
+import { DiscussionScroll } from "./discussion-scroll";
 type Run = {
   id: string;
   status: string;
@@ -159,9 +159,10 @@ export function AgentPanel({
   setupReason,
   runs,
   userId,
-  defaultMode = "advice",
-  compact = false,
   conversation = [],
+  privateChat = false,
+  focusedMessage,
+  attachments = [],
 }: {
   engagementId: string;
   visibility: string;
@@ -170,8 +171,9 @@ export function AgentPanel({
   setupReason: string | null;
   runs: Run[];
   userId: string;
-  defaultMode?: "advice" | "summary";
-  compact?: boolean;
+  privateChat?: boolean;
+  focusedMessage?: string;
+  attachments?: { id: string; name: string; source_message_id: string | null }[];
   conversation?:
     | {
         id: string;
@@ -184,7 +186,6 @@ export function AgentPanel({
 }) {
   const router = useRouter();
   const [question, setQuestion] = useState("");
-  const [mode, setMode] = useState<string>(defaultMode);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
   const [preview, setPreview] = useState("");
@@ -194,11 +195,7 @@ export function AgentPanel({
     visibility === "shared" ? "Project agent" : `Private ${visibility} agent`;
   const sufficient =
     budgetNano !== null && BigInt(availableNano) >= BigInt(budgetNano);
-  const visibleRuns = compact
-    ? runs.filter(
-        (run) => run.status === "partial_offered" && run.actor_id === userId,
-      )
-    : runs;
+  const visibleRuns = runs.filter(run => run.status === "partial_offered" && run.actor_id === userId);
   async function ask(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy) return;
@@ -214,7 +211,7 @@ export function AgentPanel({
         body: JSON.stringify({
           engagementId,
           visibility,
-          mode,
+          mode: "advice",
           question,
           operationKey: operation.current,
         }),
@@ -236,6 +233,7 @@ export function AgentPanel({
           setStatus(
             "This operation is already running. Refresh to check its status.",
           );
+        if (privateChat && data.result) { setQuestion(""); operation.current = null; }
         router.refresh();
         return;
       }
@@ -274,6 +272,7 @@ export function AgentPanel({
         throw new Error(
           "The connection ended before the result was confirmed. Refresh before retrying.",
         );
+      if (privateChat) { setQuestion(""); operation.current = null; }
       router.refresh();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Request failed.");
@@ -281,53 +280,13 @@ export function AgentPanel({
       setBusy(false);
     }
   }
-  return (
-    <section className="panel">
-      {compact ? (
-        <h2 className="ai-text">Project Agent</h2>
-      ) : (
-        <>
-          <p className="eyebrow">{label}</p>
-          <h2 className="ai-text mt-3">Clarity, with evidence</h2>
-        </>
-      )}
-      <p className="muted text-xs my-3">
-        {visibility === "shared"
-          ? "Both parties can read this interaction."
-          : "Only your party can read this interaction. Shared sources are available; the other party’s private sources are excluded."}
-      </p>
-      {!compact && (
-        <>
-          <p>
-            <strong>{formatTokens(availableNano)}</strong>{" "}
-            <span className="muted text-xs">available</span>
-          </p>
-          <Link
-            className="underline text-xs text-teal-800"
-            href={`/workspace/${engagementId}?tab=credits${visibility === "shared" ? "" : "&context=private"}`}
-          >
-            Manage this agent’s tokens
-          </Link>
-          {setupReason && <p className="notice text-xs mt-4">{setupReason}</p>}
-          {!setupReason && !sufficient && (
-            <p className="notice text-xs mt-4">
-              This balance cannot cover the operation budget. Top up this agent
-              to continue. Human collaboration remains available.
-            </p>
-          )}
-        </>
-      )}
-      {conversation === null && (
-        <p className="notice text-sm mt-4">
-          Agent chat could not be loaded. Refresh to retry.
-        </p>
-      )}
-      {!!conversation?.length && (
+  const history = (
         <div
           aria-label="Agent chat history"
-          className="mt-5 max-h-[32rem] space-y-5 overflow-y-auto"
+          className={privateChat ? "space-y-5" : "mt-5 max-h-[32rem] space-y-5 overflow-y-auto"}
         >
-          {conversation.map((message) => {
+          {!conversation?.length && privateChat && <p className="muted text-sm py-10 text-center">Ask your private assistant a question to start the conversation.</p>}
+          {(conversation || []).map((message) => {
             const run = runs.find(
               (item) => item.output_message_id === message.id,
             );
@@ -374,48 +333,40 @@ export function AgentPanel({
                     {message.body}
                   </p>
                 )}
+                {attachments.filter(file => file.source_message_id === message.id).map(file => (
+                  <p key={file.id} className="mt-2 text-sm"><Link className="underline" href={`/workspace/${engagementId}?tab=files&context=private#file-${file.id}`}>Open attachment: {file.name}</Link></p>
+                ))}
               </article>
             );
           })}
+          {privateChat && busy && preview && <p className="ai-text whitespace-pre-wrap break-words">{preview}</p>}
         </div>
+  );
+  return (
+    <section className="panel">
+      <h2 className="ai-text">{privateChat ? "Your private assistant" : "Project Agent"}</h2>
+      {!privateChat && <p className="muted text-xs my-3">
+        {visibility === "shared"
+          ? "Both parties can read this interaction."
+          : "Only your party can read this interaction. Shared sources are available; the other party’s private sources are excluded."}
+      </p>}
+      {conversation === null && (
+        <p className="notice text-sm mt-4">
+          Agent chat could not be loaded. Refresh to retry.
+        </p>
       )}
+      {privateChat ? (
+        <DiscussionScroll storageKey={`private-agent-scroll:${userId}:${engagementId}:${visibility}`} initialBottom={!focusedMessage} focusedMessage={focusedMessage} label="Private assistant messages">
+          {history}
+        </DiscussionScroll>
+      ) : !!conversation?.length && history}
       <form onSubmit={ask} className="stack mt-5">
-        {!compact && (
-          <div>
-            <label htmlFor={`agent-mode-${visibility}`}>Help with</label>
-            <select
-              id={`agent-mode-${visibility}`}
-              value={mode}
-              onChange={(e) => {
-                setMode(e.target.value);
-                operation.current = null;
-              }}
-              disabled={busy}
-            >
-              {agentModeSchema.options
-                .filter((option) => option !== "milestones")
-                .map((option) => (
-                  <option key={option} value={option}>
-                    {option === "scope"
-                      ? "Scope draft"
-                      : option === "change"
-                        ? "Scope comparison / change"
-                        : option === "summary"
-                          ? "Overview refresh"
-                          : option === "meeting"
-                            ? "Meeting proposal"
-                            : "Advice and questions"}
-                  </option>
-                ))}
-            </select>
-          </div>
-        )}
         <div>
           <label
-            className={compact ? "sr-only" : undefined}
+            className="sr-only"
             htmlFor={`agent-question-${visibility}`}
           >
-            Your question
+            {privateChat ? "Message your private assistant" : "Your question"}
           </label>
           <textarea
             id={`agent-question-${visibility}`}
@@ -427,25 +378,21 @@ export function AgentPanel({
             maxLength={8000}
             required
             disabled={busy}
-            placeholder={
-              compact
-                ? "Help me understand this better..."
-                : "What is still unclear, and what should we agree before delivery?"
-            }
+            placeholder={privateChat ? "Message your private assistant…" : "Help me understand this better..."}
           />
         </div>
         <Button
           disabled={busy || !!setupReason || !sufficient}
           title={
-            compact && (setupReason || !sufficient)
+            (setupReason || !sufficient)
               ? setupReason || "This agent needs more tokens."
               : undefined
           }
         >
-          {busy ? "Working…" : compact ? "Send" : "Ask " + label.toLowerCase()}
+          {busy ? "Working…" : "Send"}
         </Button>
       </form>
-      {status && (!compact || busy || status.startsWith("Partial")) && (
+      {status && (busy || status.startsWith("Partial")) && (
         <p role="status" className="muted text-xs mt-4">
           {status}
         </p>
@@ -454,14 +401,6 @@ export function AgentPanel({
         <p role="alert" className="notice mt-4 text-xs">
           {error}
         </p>
-      )}
-      {!compact && busy && preview && (
-        <div className="mt-4">
-          <p className="eyebrow">Draft preview · still generating</p>
-          <p className="ai-text whitespace-pre-wrap break-words mt-3">
-            {preview}
-          </p>
-        </div>
       )}
       {visibleRuns.length > 0 && (
         <div className="mt-6 space-y-5">
@@ -476,16 +415,9 @@ export function AgentPanel({
                   })}{" "}
                   UTC
                 </summary>
-                {parsed.success &&
-                  (!compact || run.status === "partial_offered") && (
+                {parsed.success && (
                     <AgentAdvice result={parsed.data} id={engagementId} />
                   )}
-                {!compact && (
-                  <p className="muted text-xs mt-3">
-                    Recommendations do not constitute approval. Use
-                    selected-content sharing to publish private drafts.
-                  </p>
-                )}
                 {run.status === "partial_offered" &&
                   run.actor_id === userId && (
                     <ActionForm
@@ -507,14 +439,6 @@ export function AgentPanel({
             );
           })}
         </div>
-      )}
-      {!compact && (
-        <p className="muted text-xs mt-5">
-          Chat and summary refreshes run when requested. Automatic discussion
-          checks are managed in Contract. Internal application failures and
-          unusable provider results are platform-funded. Low tokens pause only
-          this agent.
-        </p>
       )}
     </section>
   );

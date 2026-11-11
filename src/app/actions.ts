@@ -464,13 +464,16 @@ async function uploadMessageFile(
     throw new WorkspaceActionError(
       "The upload status is uncertain. Refresh before retrying the message.",
     );
+  await extractUploadedFile(path, user.id, file.type, bytes);
+}
+async function extractUploadedFile(path: string, ownerId: string, mime: string, bytes: Uint8Array) {
   const admin = adminDatabase();
-  if (["text/plain", "text/csv"].includes(file.type)) {
+  if (["text/plain", "text/csv"].includes(mime)) {
     const decoded = new TextDecoder().decode(bytes);
     const body = decoded.slice(0, 50000).replace(/[\uD800-\uDBFF]$/, "");
     const extracted = await admin.rpc("store_attachment_text", {
       p: path,
-      actor: user.id,
+      actor: ownerId,
       body,
       hash: createHash("sha256").update(bytes).digest("hex"),
       is_complete: body.length === decoded.length,
@@ -480,13 +483,13 @@ async function uploadMessageFile(
         .from("attachments")
         .update({ extraction_status: "error" })
         .eq("object_path", path)
-        .eq("owner_id", user.id);
+        .eq("owner_id", ownerId);
   } else
     await admin
       .from("attachments")
       .update({ extraction_status: "unsupported" })
       .eq("object_path", path)
-      .eq("owner_id", user.id);
+      .eq("owner_id", ownerId);
 }
 export async function downloadFile(f: FormData) {
   const { db } = await authenticated();
@@ -620,6 +623,11 @@ export async function reportProgress(f: FormData) {
   revalidatePath(`/workspace/${id(f)}`);
 }
 export async function submitDelivery(f: FormData) {
+  const e = id(f);
+  const task = z.uuid().parse(f.get("task"));
+  const body = z.string().trim().min(1).max(10000).parse(f.get("body"));
+  const key = z.uuid().parse(f.get("operationKey"));
+  const selected = [...new Set(z.array(z.uuid()).max(10).parse(f.getAll("file")))];
   const links = z
     .array(
       z
@@ -642,14 +650,38 @@ export async function submitDelivery(f: FormData) {
         .map((s) => s.trim())
         .filter(Boolean),
     );
-  await command("submit_delivery", {
-    t: z.uuid().parse(f.get("task")),
-    b: z.string().trim().min(1).max(10000).parse(f.get("body")),
-    links,
-    files: z.array(z.uuid()).max(10).parse(f.getAll("file")),
-    k: z.uuid().parse(f.get("operationKey")),
-  });
-  revalidatePath(`/workspace/${id(f)}`);
+  const file = f.get("deliveryUpload");
+  if (file instanceof File && file.name) {
+    if (selected.length >= 10) throw new WorkspaceActionError("Choose at most ten delivery files in total.");
+    if (file.size > 20971520) throw new WorkspaceActionError("Choose a file up to 20 MB.");
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const validationError = validateUpload(bytes, file.type);
+    if (validationError) throw new WorkspaceActionError(validationError);
+    const { db, user } = await authenticated();
+    const taskRecord = await db.from("milestone_tasks").select("engagement_id").eq("id", task).eq("engagement_id", e).single();
+    if (taskRecord.error) throw new WorkspaceActionError("Milestone unavailable.");
+    const hash = createHash("sha256").update(bytes).digest("hex");
+    const registration = await db.rpc("register_delivery_upload", { t: task, k: key, n: safeFilename(file.name), mime: file.type, bytes: file.size, hash });
+    if (registration.error) {
+      if (registration.error.message === "Idempotency conflict") throw new WorkspaceActionError("This submission was started with a different file. Reload the page to start a new submission.");
+      throw databaseActionError(registration.error.code || "", registration.error.message);
+    }
+    const path = z.string().min(1).parse(registration.data);
+    const uploaded = await db.storage.from("engagement-files").upload(path, file, { contentType: file.type, upsert: false });
+    if (uploaded.error) {
+      // A previous request may have uploaded successfully before its response
+      // was interrupted. Reuse only the exact same bytes, never overwrite.
+      const previous = await db.storage.from("engagement-files").download(path);
+      if (previous.error || !previous.data || createHash("sha256").update(new Uint8Array(await previous.data.arrayBuffer())).digest("hex") !== hash)
+        throw new WorkspaceActionError("Upload did not finish. Retry with the same file.");
+    }
+    const submitted = await db.rpc("submit_delivery_with_upload", { t: task, b: body, links, files: selected, k: key });
+    if (submitted.error) throw databaseActionError(submitted.error.code || "", submitted.error.message);
+    await extractUploadedFile(path, user.id, file.type, bytes);
+  } else {
+    await command("submit_delivery", { t: task, b: body, links, files: selected, k: key });
+  }
+  revalidatePath(`/workspace/${e}`);
 }
 export async function reviewDelivery(f: FormData) {
   await command("review_delivery", {

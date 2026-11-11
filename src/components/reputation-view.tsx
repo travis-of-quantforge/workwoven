@@ -73,6 +73,12 @@ export async function ReputationView({
             Completion confirmations:{" "}
             {currentApprovals.map((a) => a.role).join(", ") || "None"}
           </p>
+          {!accepted && (
+            <p className="muted text-sm mb-4">
+              Completion is available after both parties accept a milestone.
+              To end this discussion now, enter a reason and choose Cancel engagement.
+            </p>
+          )}
           <ActionForm actionName="engagement-outcome" className="stack">
             <input type="hidden" name="id" value={id} />
             <input type="hidden" name="expected" value={accepted || ""} />

@@ -70,7 +70,7 @@ test("professional notification bell opens with one unread message on desktop an
         await plain.setContent(await bell.locator("..").evaluate(element => element.outerHTML));
         await plain.getByRole("button", {name:"Notifications, 1 unread", exact:true}).click();
         await expect(plain.getByRole("dialog", {name:"Notifications", exact:true})).toBeVisible();
-        await expect(plain.getByRole("link", {name:"message", exact:true})).toBeVisible();
+        await expect(plain.getByRole("link", {name:`Update in [E2E] Notification ${run}`, exact:true})).toBeVisible();
       } finally { await unhydrated.close(); }
       await page.setViewportSize({width:390,height:844});
       await bell.click();
@@ -78,8 +78,61 @@ test("professional notification bell opens with one unread message on desktop an
       const bounds = await page.getByRole("dialog", {name:"Notifications", exact:true}).boundingBox();
       expect(bounds!.x).toBeGreaterThanOrEqual(0);
       expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(390);
+      let release!: () => void;
+      let started!: () => void;
+      const gate = new Promise<void>((resolve) => { release = resolve; });
+      const requested = new Promise<void>((resolve) => { started = resolve; });
+      await page.route("**/*", async route => {
+        if (route.request().method() === "POST" && route.request().headers()["next-action"]) {
+          started();
+          await gate;
+        }
+        await route.continue();
+      });
       await page.getByRole("button", {name:"Mark seen", exact:true}).click();
+      try {
+        await requested;
+        const pending = page.getByRole("button", {name:"Marking as read…", exact:true});
+        await expect(pending).toBeVisible();
+        await expect(pending).toBeDisabled();
+        await expect(pending).toHaveAttribute("aria-busy", "true");
+      } finally { release(); }
       await expect(page.getByRole("button", {name:"Notifications, 0 unread", exact:true})).toBeVisible();
+      await page.goto(`/workspace/${engagement}?tab=discussion`);
+      const composer = page.getByRole("textbox", { name: "Message", exact: true });
+      await composer.fill("Keyboard shortcut message");
+      await composer.press("Enter");
+      await expect(composer).toHaveValue("Keyboard shortcut message\n");
+      await composer.press("Control+Enter");
+      await expect(page.locator("article").filter({ hasText: "Keyboard shortcut message" })).toHaveCount(1);
+      await expect(composer).toHaveValue("");
+      const seeded = await service.from("messages").insert(Array.from({length: 35}, (_, index) => ({
+        engagement_id: engagement, author_id: userId, visibility: "shared", kind: "human", channel: "discussion",
+        body: `Scroll fixture ${index}: We will reconcile the dashboard totals against the supplied regional CSV and review the acceptance criteria together.\nKeep this discussion available while reviewing earlier decisions.`,
+      })));
+      expect(seeded.error).toBeNull();
+      await page.getByRole("link", {name:"contract", exact:true}).click();
+      await expect(page.getByRole("heading", {name:"Contract", exact:true})).toBeVisible();
+      await page.evaluate(key => sessionStorage.removeItem(key), `discussion-scroll:${userId}:${engagement}:shared:0`);
+      await page.goto(`/workspace/${engagement}?tab=discussion`);
+      const messages = page.getByRole("region", {name:"Discussion messages", exact:true});
+      await expect.poll(() => messages.evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true);
+      await expect.poll(() => messages.evaluate(el => Math.abs(el.scrollHeight - el.clientHeight - el.scrollTop))).toBeLessThan(3);
+      await expect(page.locator("body")).toHaveCSS("background-color", "rgb(247, 245, 240)");
+      await expect(page.locator("body")).toHaveCSS("color", "rgb(23, 43, 58)");
+      await messages.evaluate(el => { el.scrollTop = 120; el.dispatchEvent(new Event("scroll")); });
+      await page.getByRole("link", {name:"contract", exact:true}).click();
+      await expect(page.getByRole("heading", {name:"Contract", exact:true})).toBeVisible();
+      await page.getByRole("link", {name:"discussion", exact:true}).click();
+      await expect.poll(() => messages.evaluate(el => el.scrollTop)).toBeCloseTo(120, 0);
+      await page.reload();
+      await expect.poll(() => messages.evaluate(el => el.scrollTop)).toBeCloseTo(120, 0);
+      expect((await service.from("messages").insert({ engagement_id:engagement, author_id:userId, visibility:"shared", kind:"human", channel:"discussion", body:"A new message must not pull the reader away from earlier decisions." })).error).toBeNull();
+      await expect(messages.locator("article").filter({hasText:"A new message must not pull"})).toHaveCount(1);
+      await expect.poll(() => messages.evaluate(el => el.scrollTop)).toBeCloseTo(120, 0);
+      await page.screenshot({path:"test-results/discussion-scroll-mobile.png", fullPage:true});
+      await page.setViewportSize({width:1280,height:900});
+      await page.screenshot({path:"test-results/discussion-scroll-desktop.png", fullPage:true});
     } finally {
       await context.close();
     }

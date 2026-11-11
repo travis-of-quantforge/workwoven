@@ -8,6 +8,7 @@ import { ReputationView } from "@/components/reputation-view";
 import { CalendarView } from "@/components/calendar-view";
 import { IndividualMilestones } from "@/components/individual-milestones";
 import { MilestoneProposal } from "@/components/milestone-proposal";
+import { ActiveMilestonePreview } from "@/components/active-milestone-preview";
 import { AgentPanel, AgentAdvice } from "@/components/agent-panel";
 import { CreditView } from "@/components/credit-view";
 import { agentView } from "@/lib/ai/view";
@@ -16,22 +17,16 @@ import { ActionForm } from "@/components/action-form";
 import { ThreadedMessages } from "@/components/threaded-messages";
 import { DiscussionReadTracker } from "@/components/discussion-read-tracker";
 import { MessageAttachmentPicker } from "@/components/message-attachment-picker";
-import { AccountMenu } from "@/components/account-menu";
-import { isWorkspaceAdmin } from "@/lib/admin-access";
+import { DiscussionScroll } from "@/components/discussion-scroll";
 import { ConcernView } from "@/components/concern-view";
 import { PaymentView } from "@/components/payment-view";
 import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
 import {
-  Layers,
-  ArrowLeft,
-  LockKeyhole,
   MessageSquare,
 } from "lucide-react";
-import { authenticated } from "@/lib/supabase/server";
+import { workspaceData } from "@/lib/workspace-data";
 import { Button } from "@/components/ui/button";
-import { LiveMessages } from "@/components/live-messages";
-import { ShareDraft } from "@/components/share-draft";
+import { formatTokens } from "@/lib/ai/pricing";
 const tabs = [
   "discussion",
   "milestones",
@@ -62,41 +57,18 @@ export default async function Workspace({
 }) {
   const { id } = await params;
   const query = await searchParams;
-  let auth;
-  try {
-    auth = await authenticated();
-  } catch {
-    redirect("/login");
-  }
-  const { db, user } = auth;
+  const { db, user, project, members, role, identities } = await workspaceData(id);
   const tab = query.tab === "agreement" || query.tab === "milestones"
     ? "milestones"
     : query.tab === "reputation"
       ? "discussion"
       : tabs.includes(query.tab || "") ? query.tab! : "discussion";
-  const [projectResult, membersResult, sidebarResult, profileResult, ownMembershipsResult] = await Promise.all([
-    db.from("engagements").select("*").eq("id", id).single(),
-    db.from("memberships").select("*").eq("engagement_id", id),
-    db.from("engagements").select("id,title").order("created_at"),
-    db.from("profiles").select("active_role").eq("id", user.id).maybeSingle(),
-    db.from("memberships").select("engagement_id,role").eq("user_id", user.id),
-  ]);
-  const project = projectResult.data;
-  if (!project) notFound();
-  const members = membersResult.data || [];
-  const role = members.find((m) => m.user_id === user.id)?.role;
-  const activeRole: "client" | "professional" =
-    profileResult.data?.active_role === "professional" ? "professional" : "client";
-  const sidebarProjects = sidebarResult.data?.filter((p) =>
-    p.id === id || ownMembershipsResult.data?.some((m) => m.engagement_id === p.id && m.role === activeRole),
-  );
   const visibility = query.context === "private" ? role : "shared";
   const pageNumber = Math.min(
     1000,
     Math.max(0, Number.parseInt(query.page || "0", 10) || 0),
   );
   const [
-    identities,
     invitationResult,
     agent,
     policy,
@@ -105,7 +77,6 @@ export default async function Workspace({
     filesResult,
     readResult,
   ] = await Promise.all([
-    db.rpc("party_identities", { e: id }),
     tab === "discussion" && members.length < 2
       ? db
           .from("invitations")
@@ -255,93 +226,6 @@ export default async function Workspace({
           .gt("created_at", read?.last_read_at || "1970-01-01T00:00:00Z")
       : { count: 0 };
   return (
-    <div className="min-h-screen md:grid md:grid-cols-[240px_1fr]">
-      <aside className="bg-[#edf1f1] border-r border-slate-200 p-4 md:p-6">
-        <Link
-          className="flex items-center gap-3 text-lg font-semibold"
-          href="/"
-        >
-          <Layers className="text-teal-800" size={23} />
-          {process.env.NEXT_PUBLIC_APP_NAME || "Workspace"}
-        </Link>
-        <Link
-          href="/"
-          className="flex items-center gap-2 muted mt-4 mb-3 md:mt-9 md:mb-8 text-xs"
-        >
-          <ArrowLeft size={13} />
-          All engagements
-        </Link>
-        <p className="eyebrow mb-4 hidden md:block">Engagements</p>
-        <nav className="flex gap-2 overflow-x-auto md:block">
-          {sidebarProjects?.map((p) => (
-            <Link
-              key={p.id}
-              href={`/workspace/${p.id}`}
-              className={`block rounded-lg p-3 mb-2 text-sm ${p.id === id ? "bg-white shadow-sm font-semibold text-teal-900" : "muted"}`}
-            >
-              {p.title}
-            </Link>
-          ))}
-        </nav>
-        <div className="mt-12 text-xs muted hidden md:block">
-          <LockKeyhole size={17} className="mb-3" />
-          Private assistants have separate histories and token balances.
-        </div>
-      </aside>
-      <main className="min-w-0">
-        <header className="bg-white border-b border-slate-200 px-6 lg:px-10 pt-8">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <p className="eyebrow mb-3">Engagement / {project.status}</p>
-              <h1>{project.title}</h1>
-              <p className="muted mt-3 text-xs">
-                You are the {role} ·{" "}
-                {members.length === 2
-                  ? "Both parties joined"
-                  : "Awaiting your counterpart"}
-              </p>
-            </div>
-            <div className="text-xs muted">
-              {identities.data?.map(
-                (p: {
-                  role: string;
-                  display_name: string;
-                  company: string;
-                }) => (
-                  <p key={p.role}>
-                    {p.role}: {p.display_name}
-                    {p.company ? ` · ${p.company}` : ""}
-                  </p>
-                ),
-              )}
-            </div>
-            <div className="flex items-center gap-3">
-              <span className="badge">
-                {project.funding === "funded"
-                  ? "Funded"
-                  : "Private setup · funding pending"}
-              </span>
-              <AccountMenu activeRole={activeRole} isAdmin={isWorkspaceAdmin(user)} />
-            </div>
-          </div>
-          <LiveMessages key={id} engagementId={id} />
-          <nav
-            aria-label="Engagement tabs"
-            className="flex gap-7 overflow-x-auto mt-7"
-          >
-            {tabs.map((t) => (
-              <Link
-                key={t}
-                aria-current={tab === t ? "page" : undefined}
-                href={`/workspace/${id}?tab=${t}`}
-                className={`capitalize pb-4 border-b-2 text-sm whitespace-nowrap ${tab === t ? "border-teal-800 text-teal-900 font-semibold" : "border-transparent muted"}`}
-              >
-                {t === "credits" ? "AI tokens" : t}
-              </Link>
-            ))}
-          </nav>
-          {["discussion", "active"].includes(project.status) && <details className="my-4"><summary className="cursor-pointer text-sm">End engagement</summary><ReputationView db={db} id={id} role={role} userId={user.id} accepted={project.accepted_version_id} status={project.status} isDemo={project.is_demo} /></details>}
-        </header>
         <div className="p-5 lg:p-9 max-w-6xl mx-auto">
           {["completed", "cancelled"].includes(project.status) &&
             project.accepted_version_id && tab !== "discussion" && (
@@ -369,7 +253,6 @@ export default async function Workspace({
                 variant={visibility !== "shared" ? "default" : "outline"}
               >
                 <Link href={`?tab=${tab}&context=private`}>
-                  <LockKeyhole size={14} />
                   Your private assistant
                 </Link>
               </Button>
@@ -381,6 +264,13 @@ export default async function Workspace({
               className="grid gap-6 xl:grid-cols-[1fr_340px]"
             >
               <div className="stack content-start">
+                {visibility !== "shared" ? (agent.summary ? <AgentPanel
+                  engagementId={id} visibility={visibility} availableNano={agent.summary.availableNano}
+                  budgetNano={agent.budgetNano} setupReason={agent.setupReason} runs={agent.runs} userId={user.id}
+                  privateChat focusedMessage={query.message}
+                  attachments={files || []}
+                  conversation={agent.conversation === null ? null : [...agent.conversation, ...messages, ...(agentEvidenceMessage && !agent.conversation.some(message => message.id === agentEvidenceMessage!.id) ? [agentEvidenceMessage] : [])].sort((a, b) => a.created_at.localeCompare(b.created_at))}
+                /> : <p className="notice">Private assistant information could not be loaded. Refresh to retry.</p>) : (
                 <div className="panel">
                   <div className="flex items-center justify-between mb-6">
                     <h2>
@@ -406,6 +296,11 @@ export default async function Workspace({
                       Messages could not be loaded. Refresh to retry.
                     </p>
                   )}
+                  <DiscussionScroll
+                    storageKey={`discussion-scroll:${user.id}:${id}:${visibility}:${pageNumber}`}
+                    initialBottom={pageNumber === 0 && !query.message}
+                    focusedMessage={query.message}
+                  >
                   <nav
                     aria-label="Message history"
                     className="flex flex-wrap gap-4 text-xs mb-4"
@@ -450,7 +345,8 @@ export default async function Workspace({
                   {visibility === "shared" && !query.message && pageNumber === 0 && !messagesError && !!unread && messages?.[0] && (
                     <DiscussionReadTracker engagementId={id} lastMessage={messages[0].id} />
                   )}
-                  <ActionForm actionName="message" className="mt-6">
+                  </DiscussionScroll>
+                  <ActionForm actionName="message" className="mt-6" submitOnCtrlEnter={visibility === "shared"}>
                     <input type="hidden" name="id" value={id} />
                     <input type="hidden" name="visibility" value={visibility} />
                     <label htmlFor="body" className={visibility === "shared" ? "sr-only" : undefined}>
@@ -474,9 +370,10 @@ export default async function Workspace({
                     </div>
                   </ActionForm>
                 </div>
-                {visibility !== "shared" && <ShareDraft id={id} />}
+                )}
               </div>
               <aside className="stack content-start">
+                {visibility === "shared" && <ActiveMilestonePreview db={db} id={id} status={project.status} />}
                 {visibility === "shared" && <MilestoneProposal
                   key={id}
                   engagementId={id}
@@ -486,7 +383,14 @@ export default async function Workspace({
                   aiUnavailable={agent.setupReason || (!agent.summary || !agent.budgetNano || BigInt(agent.summary.availableNano) < BigInt(agent.budgetNano) ? "The shared agent needs sufficient tokens to draft milestones." : null)}
                   disabled={project.funding !== "funded" || !["discussion", "active"].includes(project.status)}
                 />}
-                <details open={visibility !== "shared" || !!agentEvidenceMessage}>
+                {visibility !== "shared" && <section className="panel">
+                  <h3>Private conversation</h3>
+                  <p className="muted text-sm my-3">Only you can read this conversation. Your assistant can use shared engagement material and your own private notes. The other party and the project agent cannot access it.</p>
+                  <p className="text-sm"><strong>{formatTokens(agent.summary?.availableNano || "0")}</strong> available</p>
+                  <Link className="underline text-xs" href={`?tab=credits&context=private`}>Manage this agent’s tokens</Link>
+                  {agent.setupReason ? <p className="notice text-xs mt-4">{agent.setupReason}</p> : (!agent.budgetNano || BigInt(agent.summary?.availableNano || "0") < BigInt(agent.budgetNano)) && <p className="notice text-xs mt-4">This private assistant needs more tokens to continue.</p>}
+                </section>}
+                {visibility === "shared" && <details open={!!agentEvidenceMessage}>
                 <summary className="cursor-pointer rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm font-medium">{visibility === "shared" ? "Chat with the project agent" : "Your private assistant"}</summary>
                 {agent.summary ? (
                   <AgentPanel
@@ -499,7 +403,6 @@ export default async function Workspace({
                     runs={agent.runs}
                     conversation={agent.conversation && [...agent.conversation, ...(agentEvidenceMessage && !agent.conversation.some((message) => message.id === agentEvidenceMessage!.id) ? [agentEvidenceMessage] : [])].sort((a, b) => a.created_at.localeCompare(b.created_at))}
                     userId={user.id}
-                    compact={visibility === "shared"}
                   />
                 ) : (
                   <div className="notice">
@@ -508,7 +411,7 @@ export default async function Workspace({
                   </div>
                 )}
                 {visibility === "shared" && parsedSummary.success && <details className="panel mt-3"><summary className="cursor-pointer">Project summary</summary><p className="muted text-xs mt-3">Last refreshed: {summaryRun.data?.finished_at || summaryRun.data?.created_at}. This summary is not an agreement.</p><AgentAdvice id={id} result={parsedSummary.data} /></details>}
-                </details>
+                </details>}
                 {visibility === "shared" &&
                   members.length < 2 &&
                   ["discussion", "active"].includes(project.status) && (
@@ -612,7 +515,5 @@ export default async function Workspace({
           )}
           {tab === "contract" && <ContractView db={db} id={id} userId={user.id} selected={query.version}/>}
         </div>
-      </main>
-    </div>
   );
 }

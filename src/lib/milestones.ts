@@ -1,4 +1,19 @@
 import { z } from "zod";
+
+export function activeMilestoneId(
+  status: string,
+  items: { id: string; accepted_version_id: string | null }[],
+  versions: { id: string; task_id: string }[],
+  tasks: { id: string; end_date: string }[],
+  completedTaskIds: Set<string>,
+) {
+  if (status !== "active") return undefined;
+  return items.flatMap(item => {
+    const version = versions.find(v => v.id === item.accepted_version_id);
+    const task = tasks.find(t => t.id === version?.task_id);
+    return task && !completedTaskIds.has(task.id) ? [{ id: item.id, date: task.end_date }] : [];
+  }).sort((a, b) => a.date.localeCompare(b.date))[0]?.id;
+}
 export const milestoneSuggestionSchema = z.object({
   description: z.string().trim().min(1).max(5000),
 });

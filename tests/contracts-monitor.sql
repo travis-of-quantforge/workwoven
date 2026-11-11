@@ -4,6 +4,7 @@ reset role;
 insert into auth.users(id,email,email_confirmed_at) values
 ('95000000-0000-4000-8000-000000000001','monitor-client@example.test',now()),
 ('95000000-0000-4000-8000-000000000002','monitor-pro@example.test',now());
+update public.profiles set display_name='Morgan Client' where id='95000000-0000-4000-8000-000000000001';
 select id as price from public.ai_pricing where model='gpt-5-mini-2025-08-07' limit 1 \gset
 set role authenticated;
 select set_config('request.jwt.claim.sub','95000000-0000-4000-8000-000000000001',false);
@@ -25,9 +26,20 @@ do $$begin if exists(select 1 from public.engagement_contracts where engagement_
 select set_config('request.jwt.claim.sub','95000000-0000-4000-8000-000000000001',false);
 select public.approve_contract(:'v');
 select public.post_discussion_message(:'e','client','PRIVATE client request for secret pricing') as private_message \gset
+select public.approve_contract(:'v'); -- Approval retry must not notify twice.
+do $$begin
+ if(select count(*) from public.notifications where record_id=current_setting('test.monitor_v')::uuid and kind='contract_approval')<>1 then raise exception 'Missing or duplicate counterparty contract notice';end if;
+ if not exists(select 1 from public.notifications where record_id=current_setting('test.monitor_v')::uuid and kind='contract_approval' and title='Professional approved contract version 1') then raise exception 'Contract notice has wrong actor or version';end if;
+end $$;
 select public.post_discussion_message(:'e','shared','Please add scheduled email reports.') as source \gset
 select id as job from public.message_assessments where message_id=:'source' \gset
 select set_config('test.monitor_job',:'job',false),set_config('test.monitor_source',:'source',false),set_config('test.monitor_private',:'private_message',false);
+reset role;
+do $$begin
+ if not exists(select 1 from public.notifications where record_id=current_setting('test.monitor_source')::uuid and recipient_id='95000000-0000-4000-8000-000000000002' and title='Morgan Client sent a message in Contract monitor fixture') then raise exception 'Message sender/title missing';end if;
+ if exists(select 1 from public.notifications where record_id=current_setting('test.monitor_private')::uuid) then raise exception 'Private message generated a notification';end if;
+end $$;
+set role authenticated;
 do $$begin
  if exists(select 1 from public.message_assessments where message_id=current_setting('test.monitor_private')::uuid) then raise exception 'Private message queued';end if;
  if not exists(select 1 from public.search_agent_evidence(current_setting('test.monitor_e')::uuid,'shared','contract') where ref='contract:'||current_setting('test.monitor_v') and state='agreed') then raise exception 'Accepted contract missing from retrieval';end if;

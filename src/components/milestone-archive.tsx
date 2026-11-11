@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Dialog } from "radix-ui";
 import { Button } from "./ui/button";
 export type MilestoneHistory = {
@@ -54,11 +55,21 @@ export function MilestoneArchive({
   selected?: string;
   label?: string;
 }) {
+  const router = useRouter();
   const [open, setOpen] = useState(
     !!selected && versions.some((v) => v.id === selected),
   );
   return (
-    <Dialog.Root open={open} onOpenChange={setOpen}>
+    <Dialog.Root open={open} onOpenChange={(next) => {
+      setOpen(next);
+      if (!next && selected) {
+        const url = new URL(window.location.href);
+        if (url.searchParams.has("version")) {
+          url.searchParams.delete("version");
+          router.replace(`${url.pathname}${url.search}`, { scroll: false });
+        }
+      }
+    }}>
       <Dialog.Trigger asChild>
         <Button variant="outline">
           {label ||

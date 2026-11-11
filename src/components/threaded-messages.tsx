@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Button } from "./ui/button";
 import { ActionForm } from "./action-form";
 import type { Assessment } from "@/lib/ai/scope-monitor";
+import { EvidenceLinkHelp } from "./evidence-link-help";
 type MessageAssessment = {
   message_id: string;
   notice_message_id: string | null;
@@ -79,15 +80,18 @@ export function ThreadedMessages({
             })}{" "}
             UTC
           </time>
+          <span className="inline-flex items-center gap-1">
           <Link
             className="muted text-xs underline"
             href={`?tab=discussion${visibility === "shared" ? "" : "&context=private"}&message=${m.id}#message-${m.id}`}
           >
             Evidence link
           </Link>
+          <EvidenceLinkHelp />
+          </span>
         </div>
         {notice?.result ? (
-          <div className="ai-text rounded-lg border border-blue-200 bg-blue-50 p-4">
+          <div className="ai-text rounded-lg border border-mint bg-mint/40 p-4">
             <h3 className="font-semibold">Potential scope or contract issue</h3>
             <p className="mt-2">{notice.result.summary}</p>
             <p className="text-xs mt-2">
@@ -112,7 +116,7 @@ export function ThreadedMessages({
                     Quoted message
                   </Link>
                   <blockquote className="border-l-2 border-blue-400 pl-3 my-2 whitespace-pre-wrap break-words">
-                    <mark className="bg-amber-100 text-blue-900">
+                    <mark className="bg-coral/30 text-blue-900">
                       {issue.messageQuote}
                     </mark>
                   </blockquote>

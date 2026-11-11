@@ -1,11 +1,39 @@
 @import "tailwindcss";
+/* Shared palette: style_guide.md. Existing Tailwind utilities inherit these
+   tokens so navigation, forms, dialogs and admin screens stay consistent. */
+@theme {
+  --color-navy: #172b3a;
+  --color-brand: #087f78;
+  --color-ivory: #f7f5f0;
+  --color-mint: #ddf1ea;
+  --color-coral: #e9826b;
+  --color-teal-50: #ddf1ea;
+  --color-teal-100: #ddf1ea;
+  --color-teal-600: #087f78;
+  --color-teal-700: #087f78;
+  --color-teal-800: #087f78;
+  --color-teal-900: #06635e;
+  --color-slate-50: #f7f5f0;
+  --color-slate-100: #e9ecea;
+  --color-slate-200: #d7ddde;
+  --color-slate-300: #b5c0c5;
+  --color-slate-600: #52616c;
+  --color-slate-700: #172b3a;
+  --color-slate-800: #172b3a;
+  --color-slate-950: #172b3a;
+}
 .ai-text,
 .ai-text :is(p, li, dt, dd, strong, span, a, h1, h2, h3, h4, summary, time) {
   color: #1e3a8a;
 }
 :root {
-  --background: #f7f8fa;
-  --foreground: #243136;
+  --background: var(--color-ivory);
+  --foreground: var(--color-navy);
+}
+/* Bryntum's light theme defines these public tokens on the same selector. */
+:root:not(.b-nothing) {
+  --b-primary: var(--color-brand);
+  --b-secondary: var(--color-coral);
 }
 * {
   box-sizing: border-box;
@@ -31,10 +59,12 @@ input,
 textarea,
 select {
   width: 100%;
-  border: 1px solid #ccd5d6;
+  border: 1px solid var(--color-slate-300);
   border-radius: 7px;
   padding: 10px 12px;
-  background: white;
+  background: #ffffff;
+  color: var(--foreground);
+  accent-color: var(--color-brand);
   font: inherit;
 }
 textarea {
@@ -67,17 +97,24 @@ p {
 a {
   text-decoration: none;
 }
+a:not([class]),
+:where(a.underline) {
+  color: var(--color-teal-900);
+}
 .panel {
   background: white;
-  border: 1px solid #e2e7e8;
+  border: 1px solid var(--color-slate-200);
   border-radius: 12px;
   padding: 24px;
 }
+.panel[data-active="true"] {
+  border: 2px solid var(--color-brand);
+}
 .muted {
-  color: #65767c;
+  color: var(--color-slate-600);
 }
 .eyebrow {
-  color: #6d7f83;
+  color: var(--color-slate-600);
   font-size: 11px;
   letter-spacing: 1.5px;
   text-transform: uppercase;
@@ -88,19 +125,27 @@ a {
   border-radius: 20px;
   padding: 4px 10px;
   font-size: 11px;
-  background: #e7f2ef;
-  color: #276458;
+  background: var(--color-mint);
+  color: var(--color-navy);
 }
 .notice {
-  background: #fff6e6;
-  border: 1px solid #ead8b5;
+  background: color-mix(in srgb, var(--color-coral) 15%, white);
+  border: 1px solid color-mix(in srgb, var(--color-coral) 65%, white);
   border-radius: 8px;
   padding: 14px;
-  color: #765522;
+  color: var(--color-navy);
 }
 .stack {
   display: grid;
   gap: 18px;
+}
+.discussion-scroll {
+  height: min(55dvh, 36rem);
+  min-height: 16rem;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
+  overflow-anchor: auto;
 }
 small {
   line-height: 1.6;
@@ -119,7 +164,7 @@ small {
   width: 100%;
   min-width: 0;
   overflow: hidden;
-  border: 1px solid #e2e7e8;
+  border: 1px solid var(--color-slate-200);
   border-radius: 8px;
 }
 .bryntum-host input,
@@ -133,7 +178,7 @@ small {
 }
 .workspace-proposed-task.b-gantt-task,
 .workspace-proposed-task .b-gantt-task {
-  border: 2px dashed #a86b1b;
-  background: #ffedc9;
-  color: #4f3511;
+  border: 2px dashed var(--color-coral);
+  background: var(--color-mint);
+  color: var(--color-navy);
 }

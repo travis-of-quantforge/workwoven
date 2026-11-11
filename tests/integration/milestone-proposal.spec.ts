@@ -237,10 +237,26 @@ test("Discussion milestone modal, two-party approval, revision and professional 
     const m = proposed.data![0], other = proposed.data![1];
     await pp.goto(`/workspace/${e}?tab=milestones`);
     const receiverCard = pp.locator(`#milestone-${m.id}`);
+    await expect(pp.locator("[data-active=true]")).toHaveCount(0);
+    await expect(receiverCard.locator(":scope > details")).not.toHaveAttribute("open", "");
+    await receiverCard.locator(":scope > details > summary").click();
     await receiverCard.getByRole("button", { name: "Accept version 1", exact: true }).click();
+    await expect(receiverCard).toHaveAttribute("data-active", "true");
+    await expect(receiverCard).toHaveCSS("border-top-width", "2px");
+    await expect(receiverCard).toHaveCSS("border-top-color", "rgb(8, 127, 120)");
+    await expect(receiverCard.locator(":scope > details")).toHaveAttribute("open", "");
+    await expect(receiverCard.getByText("Active", { exact: true })).toBeVisible();
+    await expect(pp.locator(`#milestone-${other.id} > details`)).not.toHaveAttribute("open", "");
     await expect(receiverCard.getByRole("button", { name: "Accept version 1", exact: true })).toHaveCount(0);
     expect((await service.from("milestones").select("accepted_version_id").eq("id", m.id).single()).data!.accepted_version_id).toBe(m.latest_version_id);
     expect((await service.from("milestones").select("accepted_version_id").eq("id", other.id).single()).data!.accepted_version_id).toBeNull();
+    await cp.getByRole("button", { name: /^Notifications/ }).click();
+    const milestoneNotice = cp.getByRole("link", { name: /^Professional approved milestone version 1:/ });
+    await expect(milestoneNotice).toHaveCount(1);
+    await expect(milestoneNotice).toHaveAttribute("href", `/workspace/${e}?tab=milestones&version=${m.latest_version_id}`);
+    await milestoneNotice.click();
+    await expect(cp.getByRole("dialog", { name: "Milestone version history" })).toBeVisible();
+    await cp.getByRole("button", { name: "Close archive" }).click();
     await receiverCard.getByRole("button", { name: "Propose amendment" }).click();
     const amendment = pp.getByRole("dialog", { name: "Propose amendment" });
     await amendment.getByLabel("Amount on completion (USD)").fill("125");
@@ -271,12 +287,78 @@ test("Discussion milestone modal, two-party approval, revision and professional 
     expect(await cp.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await cp.screenshot({ path: "test-results/milestone-archive-mobile.png" });
     await archive.getByRole("button", { name: "Close archive" }).click();
-    await cp.screenshot({ path: "test-results/milestones-mobile.png" });
+    await cp.screenshot({ path: "test-results/milestones-mobile.png", fullPage: true });
     await cp.setViewportSize({ width: 1280, height: 900 });
-    await cp.screenshot({ path: "test-results/milestones-desktop.png" });
+    await cp.screenshot({ path: "test-results/milestones-desktop.png", fullPage: true });
     await cp.goto(`/workspace/${e}?tab=discussion`);
     await expect(cp.locator("article").filter({ hasText: "Milestone proposed" })).toHaveCount(4);
     await expect(cp.locator("article").filter({ hasText: "Milestone accepted" })).toHaveCount(2);
+    const preview = cp.getByRole("region", { name: "Active milestone", exact: true });
+    await expect(preview).toContainText("Version 2");
+    const previewLink = preview.getByRole("link", { name: "View milestone", exact: true });
+    await expect(previewLink).toHaveAttribute("href", `/workspace/${e}?tab=milestones#milestone-${m.id}`);
+    const previewBounds = await preview.boundingBox();
+    const proposeBounds = await cp.getByRole("button", { name: "Propose milestones", exact: true }).boundingBox();
+    expect(previewBounds!.y + previewBounds!.height).toBeLessThanOrEqual(proposeBounds!.y);
+    await previewLink.click();
+    await expect(cp.locator(`#milestone-${m.id}`)).toHaveAttribute("data-active", "true");
+
+    // Active follows the accepted deadline, then advances only after client
+    // acceptance of delivery; neither a proposal nor a payment completes it.
+    expect((await professional.db.rpc("accept_milestone", { v: other.latest_version_id })).error).toBeNull();
+    const acceptedItems = await service.from("milestones").select("id,accepted_version_id").eq("engagement_id", e);
+    const acceptedVersions = await service.from("milestone_versions").select("id,task_id").in("id", acceptedItems.data!.map(row => row.accepted_version_id));
+    const acceptedTasks = await service.from("milestone_tasks").select("id,end_date").in("id", acceptedVersions.data!.map(row => row.task_id));
+    const ordered = acceptedItems.data!.map(item => ({
+      id: item.id,
+      task: acceptedTasks.data!.find(task => task.id === acceptedVersions.data!.find(v => v.id === item.accepted_version_id)!.task_id)!,
+    })).sort((a, b) => a.task.end_date.localeCompare(b.task.end_date));
+    await cp.goto(`/workspace/${e}?tab=milestones`);
+    for (let index = 0; index < ordered.length; index++) {
+      const current = ordered[index];
+      await expect(cp.locator(`#milestone-${current.id}`)).toHaveAttribute("data-active", "true");
+      await expect(cp.locator(`#milestone-${current.id} > details`)).toHaveAttribute("open", "");
+      let submitted;
+      if (index === 0) {
+        await pp.goto(`/workspace/${e}?tab=milestones`);
+        const card = pp.locator(`#milestone-${current.id}`);
+        await card.getByText("Delivery and progress", { exact: true }).click();
+        await card.getByText("Submit formal delivery", { exact: true }).click();
+        await card.getByLabel("Delivery message", { exact: true }).fill("Deliver the agreed dashboard files for review.");
+        await card.getByLabel("Upload a delivery file (optional)", { exact: true }).setInputFiles({name:"invalid.png",mimeType:"image/png",buffer:Buffer.from("not a PNG")});
+        await card.getByRole("button", { name:"Submit delivery for review",exact:true }).click();
+        await expect(card.getByRole("alert")).toContainText("valid PNG signature");
+        expect((await service.from("delivery_submissions").select("id").eq("task_id",current.task.id)).data).toHaveLength(0);
+        await card.getByLabel("Delivery message", { exact: true }).fill("Deliver the agreed dashboard files for review.");
+        await card.getByLabel("Upload a delivery file (optional)", { exact: true }).setInputFiles({name:"dashboard-delivery.txt",mimeType:"text/plain",buffer:Buffer.from("Regional CSV totals reconcile with the supplied example data.\nReview the upload and filtering checklist.")});
+        await card.getByRole("button", { name:"Submit delivery for review",exact:true }).click();
+        await expect(card.getByRole("link",{name:"dashboard-delivery.txt",exact:true})).toBeVisible();
+        const saved = await service.from("delivery_submissions").select("id").eq("task_id",current.task.id).single();
+        expect(saved.error).toBeNull();
+        submitted = { data:saved.data!.id,error:null };
+        const attached = await service.from("delivery_files").select("attachment_id").eq("submission_id",submitted.data);
+        expect(attached.data).toHaveLength(1);
+        const metadata = await client.db.from("attachments").select("name,upload_status,source_message_id").eq("id",attached.data![0].attachment_id).single();
+        expect(metadata.data?.name).toBe("dashboard-delivery.txt");
+        expect(metadata.data?.upload_status).toBe("ready");
+        expect(metadata.data?.source_message_id).toBeTruthy();
+        await pp.screenshot({path:"test-results/delivery-upload-desktop.png",fullPage:true});
+        await pp.setViewportSize({width:390,height:844});
+        expect(await pp.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+        await pp.screenshot({path:"test-results/delivery-upload-mobile.png",fullPage:true});
+      } else {
+        submitted = await professional.db.rpc("submit_delivery", { t: current.task.id, b: "Deliver the agreed work for review against its criteria.", links: [], files: [], k: randomUUID() });
+      }
+      expect(submitted.error).toBeNull();
+      await expect(cp.locator(`#milestone-${current.id}`)).toHaveAttribute("data-active", "true");
+      expect((await client.db.rpc("review_delivery", { s: submitted.data, decision: "accepted", reason: "The delivered work meets the agreed acceptance criteria." })).error).toBeNull();
+      await expect(cp.locator(`#milestone-${current.id}`)).not.toHaveAttribute("data-active", "true");
+      await expect(cp.locator(`#milestone-${current.id} > details`)).not.toHaveAttribute("open", "");
+      await expect(cp.locator(`#milestone-${current.id} > details > summary`).getByText("Completed", { exact: true })).toBeVisible();
+    }
+    await expect(cp.locator("[data-active=true]")).toHaveCount(0);
+    await cp.goto(`/workspace/${e}?tab=discussion`);
+    await expect(cp.getByRole("region", { name: "Active milestone", exact: true })).toContainText("No active milestone.");
 
   } finally {
     for (const context of contexts) await context.close();
