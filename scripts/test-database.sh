@@ -29,6 +29,8 @@ psql -v ON_ERROR_STOP=1 -f tests/concerns-invitations.sql >/dev/null
 psql -v ON_ERROR_STOP=1 -f tests/payment-requests.sql >/dev/null
 psql -v ON_ERROR_STOP=1 -f tests/individual-milestones.sql >/dev/null
 psql -v ON_ERROR_STOP=1 -f tests/payment-ledger.sql >/dev/null
+psql -v ON_ERROR_STOP=1 -f tests/payment-cancellation.sql >/dev/null
+psql -v ON_ERROR_STOP=1 -f tests/contracts-monitor.sql >/dev/null
 python3 tests/concurrency.py
 # Apply the new migration over real multi-task legacy records in a separate
 # disposable database, not just an empty schema.

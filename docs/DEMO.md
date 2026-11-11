@@ -6,6 +6,8 @@ No payment, model result, purchase credit, review or public achievement is fabri
 
 ## Current human-workflow video (under three minutes)
 
+For the Contract/background-check variation, use two accounts to submit and approve the same contract version first (a short demo-specific contract can explicitly include CSV dashboards and exclude scheduled email reports). Then send the email-report request in shared Discussion: it appears immediately, and the later project-agent warning quotes the relevant words and links the accepted contract. Open the private assistant to demonstrate that private requests do not create shared checks. The Contract tab shows pause controls and the shared-token policy. Allow time for actual model latency, or record a genuine previously completed assessment; do not present a synthetic fixture response as live AI. Local seed execution and live classification for this new path are not yet provider-smoke-tested.
+
 - **0:00–0:20** Open two authenticated browser profiles. Show the shared reporting-dashboard engagement and the once-only $5 shared starter grant. Open AI credits: the private balance is zero and separate.
 - **0:20–0:40** Switch to the client-private context, then the professional browser: the client’s note/file is absent. Select text, preview its exact shared copy, then explicitly confirm sharing.
 - **0:40–1:05** Show the example CSV, extracted preview, source discussion link and authorised download. Expand the project agent and invoke it explicitly only when AI is enabled; inspect cited advice and token usage.

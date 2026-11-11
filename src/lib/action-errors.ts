@@ -7,11 +7,16 @@ export function databaseActionError(code: string, message: string) {
     );
   const allowed = [
     "Verified account required",
+    "Invalid contract draft",
+    "Stale contract version; refresh before submitting",
+    "Stale contract version; refresh before approving",
+    "Both parties must join before contract approval",
     "Both parties must join before payments",
     "A milestone payment is processing; refresh its status before accepting a revision",
     "Engagement is archived",
     "Invalid payment request",
     "Payment request is no longer payable",
+    "Only an uncaptured checkout awaiting approval can be cancelled",
     "Outstanding balance changed; request a new payment",
     "Professional must connect PayPal sandbox first",
     "Milestone has no outstanding balance",

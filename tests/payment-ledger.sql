@@ -27,6 +27,7 @@ do $$begin
  begin update public.payment_ledger set amount_cents=1;raise exception 'Ledger mutated';exception when insufficient_privilege then null;end;
 end $$;
 reset role;
+update public.profiles set display_name='Travis Weedon' where id='97000000-0000-4000-8000-000000000001';
 insert into public.paypal_sellers(user_id,merchant_id,payments_enabled,refunds_enabled,verified_at) values('97000000-0000-4000-8000-000000000002','ABCDEFGHIJKLM',true,true,now());
 set role authenticated;
 select set_config('request.jwt.claim.sub','97000000-0000-4000-8000-000000000001',false);
@@ -40,6 +41,9 @@ do $$begin
 end $$;
 reset role;
 select public.record_paypal_payment(:'p','ORDERLEDGER',null,'approval_pending','https://www.sandbox.paypal.com/checkoutnow?token=ORDERLEDGER');
+do $$begin
+ if exists(select 1 from public.notifications where recipient_id='97000000-0000-4000-8000-000000000002' and kind in('payment_request','payment_received')) then raise exception 'Professional notified before payment received';end if;
+end $$;
 set role authenticated;
 select set_config('request.jwt.claim.sub','97000000-0000-4000-8000-000000000002',false);
 select public.create_adhoc_payment_request(:'e','hourly','Five hours of November support',50000,'97000000-0000-4000-8000-000000000015');
@@ -57,6 +61,12 @@ do $$begin if(select status from public.payment_transactions where id=current_se
 select public.record_paypal_payment(:'p','ORDERLEDGER','CAPTURELEDGER','completed');
 select public.record_paypal_payment(:'p','ORDERLEDGER','CAPTURELEDGER','completed');
 select public.record_paypal_payment(:'p','ORDERLEDGER','CAPTURELEDGER','failed'); -- Out-of-order event.
+do $$begin
+ if(select count(*) from public.notifications where recipient_id='97000000-0000-4000-8000-000000000002' and kind='payment_received' and record_id=current_setting('test.ledger_p')::uuid)<>1 then raise exception 'Received notification missing or duplicated';end if;
+ if not exists(select 1 from public.notifications where record_id=current_setting('test.ledger_p')::uuid and kind='payment_received' and title='Payment received: $100 from Travis Weedon') then raise exception 'Payment receipt title incorrect';end if;
+ if(select count(*) from public.notifications where recipient_id='97000000-0000-4000-8000-000000000001' and kind='payment_sent' and record_id=current_setting('test.ledger_p')::uuid)<>1 then raise exception 'Sent notification missing or duplicated';end if;
+ if exists(select 1 from public.notifications where recipient_id='97000000-0000-4000-8000-000000000002' and kind='payment_request') then raise exception 'Professional received intermediate payment notice';end if;
+end $$;
 set role authenticated;
 select set_config('request.jwt.claim.sub','97000000-0000-4000-8000-000000000001',false);
 select public.accept_milestone(:'v2');
@@ -78,6 +88,9 @@ reset role;
 select public.record_paypal_refund(:'r','REFUNDLEDGER','completed');
 select public.record_paypal_refund(:'r','REFUNDLEDGER','completed');
 select public.record_paypal_refund(:'r','REFUNDLEDGER','failed');
+do $$begin
+ if(select count(*) from public.notifications where recipient_id='97000000-0000-4000-8000-000000000001' and kind='refund_received')<>1 then raise exception 'Refund notice missing or duplicated';end if;
+end $$;
 set role authenticated;
 select set_config('request.jwt.claim.sub','97000000-0000-4000-8000-000000000001',false);
 do $$begin

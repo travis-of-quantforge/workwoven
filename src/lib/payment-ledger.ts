@@ -14,6 +14,7 @@ export type LedgerEntry = {
 export const ledgerLabels: Record<string, string> = {
   request_created: "Requested",
   request_superseded: "Request superseded",
+  request_cancelled: "Request cancelled",
   order_created: "Awaiting PayPal approval",
   payment_processing: "Processing",
   payment_completed: "Paid",

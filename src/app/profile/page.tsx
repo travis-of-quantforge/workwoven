@@ -25,8 +25,7 @@ export default async function ProfilePage() {
       </div>
       <h1 className="my-6">Your profile</h1>
       <section className="panel mb-5">
-        <h2>Account context</h2>
-        <p className="muted mt-3">You started as a {p?.default_role || "client"}. You are currently browsing as a {p?.active_role || "client"}. Use the account menu to switch; your role in existing engagements stays the same.</p>
+        <h2>Account context: {p?.active_role === "professional" ? "Professional" : "Client"}</h2>
       </section>
       <section className="panel">
         <p className="muted mb-5">

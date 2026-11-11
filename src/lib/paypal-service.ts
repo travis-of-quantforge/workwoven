@@ -7,8 +7,9 @@ import {
   verifiedRefund,
   safePayPalLink,
   PayPalError,
+  checkoutAppUrl,
 } from "./paypal-api";
-import { WorkspaceActionError } from "./action-errors";
+import { WorkspaceActionError, databaseActionError } from "./action-errors";
 
 export function paypalSetupReason() {
   if (process.env.PAYPAL_ENVIRONMENT !== "sandbox")
@@ -24,7 +25,7 @@ export function paypalSetupReason() {
     return "PayPal sandbox setup is incomplete. Requests and ledger export remain available.";
   return null;
 }
-export function sandboxProvider() {
+export function sandboxProvider(origin?: string) {
   const reason = paypalSetupReason();
   if (reason) throw new WorkspaceActionError(reason);
   return new SandboxPayPal({
@@ -39,7 +40,7 @@ export function sandboxProvider() {
       .min(1)
       .parse(process.env.SANDBOX_PAYPAL_PARTNER_ATTRIBUTION_ID),
     webhookId: process.env.SANDBOX_PAYPAL_PARTNER_WEBHOOK_ID,
-    appUrl: z.url().parse(process.env.NEXT_PUBLIC_APP_URL).replace(/\/$/, ""),
+    appUrl: checkoutAppUrl(z.url().parse(process.env.NEXT_PUBLIC_APP_URL), origin),
   });
 }
 export async function refreshSeller(userId: string, api = sandboxProvider()) {
@@ -105,9 +106,10 @@ export async function onboardingLink(userId: string, engagementId: string) {
   if (updated.error) throw new Error("Seller setup unavailable");
   return url;
 }
-export async function checkoutLink(paymentId: string) {
-  const api = sandboxProvider(),
+export async function checkoutLink(paymentId: string, origin?: string) {
+  const api = sandboxProvider(origin),
     admin = adminDatabase();
+  const appUrl = checkoutAppUrl(process.env.NEXT_PUBLIC_APP_URL!, origin);
   const result = await admin
     .from("payment_transactions")
     .select("*")
@@ -136,6 +138,8 @@ export async function checkoutLink(paymentId: string) {
       { seller: p.merchant_id },
     );
     const current = verifiedOrder(currentOrder, p);
+    if (current.approved && !current.captureId)
+      return `${appUrl}/workspace/${p.engagement_id}?tab=payments&checkout=${p.id}`;
     if (current.completed || current.failed) {
       await reconcilePayment(p.id);
       if (current.completed)
@@ -207,6 +211,30 @@ export async function checkoutLink(paymentId: string) {
     );
   return url;
 }
+export async function cancelPayPalPayment(paymentId: string, actorId: string) {
+  const admin = adminDatabase();
+  const result = await admin.from("payment_transactions").select("*").eq("id", paymentId).single();
+  if (result.error || !result.data || result.data.payer_id !== actorId)
+    throw new WorkspaceActionError("Only the paying client can cancel this checkout.");
+  const payment = result.data;
+  if (payment.status === "cancelled") return;
+  if (payment.status !== "approval_pending" || !payment.order_id || payment.capture_id)
+    throw new WorkspaceActionError("Only an uncaptured checkout awaiting approval can be cancelled. Refresh its payment status.");
+  // A pending capture, failed check or uncertain provider response must never
+  // release the request for a second payment. This operation never captures.
+  const verified = await reconcilePayment(paymentId);
+  if (verified.completed || verified.captureId || verified.pending)
+    throw new WorkspaceActionError("PayPal has already received this payment or is processing it. Its status has been refreshed; it cannot be cancelled.");
+  if (verified.failed)
+    throw new WorkspaceActionError("This checkout already ended without payment. Refresh the page to retry.");
+  if (!verified.cancellable)
+    throw new WorkspaceActionError("PayPal has not confirmed that this checkout is safe to cancel. Refresh its payment status before retrying.");
+  const cancelled = await admin.rpc("cancel_paypal_checkout", {
+    p: paymentId, actor: actorId, provider_order: payment.order_id,
+  });
+  if (cancelled.error) throw databaseActionError(cancelled.error.code || "", cancelled.error.message);
+}
+
 export async function reconcilePayment(
   paymentId: string,
   capture = false,
@@ -228,6 +256,8 @@ export async function reconcilePayment(
     seller: p.merchant_id,
   });
   let verified = verifiedOrder(order, p);
+  if (capture && !verified.approved && !verified.captureId && !verified.failed)
+    throw new WorkspaceActionError("Approve this payment in PayPal before completing it.");
   if (capture && verified.approved && !verified.captureId) {
     if (!authorizeCapture)
       throw new Error("Explicit client capture authorization required");

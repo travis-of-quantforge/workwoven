@@ -63,7 +63,7 @@ test("signup profile type and account switch drive dashboard and future engageme
       ).toBeVisible();
       await page.goto("/profile");
       await expect(
-        page.getByText("You started as a professional.", { exact: false }),
+        page.getByRole("heading", { name: "Account context: Professional", exact: true }),
       ).toBeVisible();
       await page.goto("/");
       await page.getByText("Account · Professional").click();

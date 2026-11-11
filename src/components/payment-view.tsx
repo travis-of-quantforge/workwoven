@@ -6,19 +6,20 @@ import { centsText, ledgerLabels } from "@/lib/payment-ledger";
 import { paypalSetupReason } from "@/lib/paypal-service";
 import { ActionForm } from "./action-form";
 import { Button } from "./ui/button";
+import { PayPalConnect } from "./paypal-connect";
+import { PayPalCompletion } from "./paypal-completion";
 
 const kinds: Record<string, string> = {
   milestone: "Milestone",
   agreement: "Agreement balance",
   hourly: "Hourly billing",
   adhoc: "Ad hoc payment",
-  bonus: "Bonus",
+  bonus: "Payment",
 };
 export async function PaymentView({
   db,
   engagementId,
   role,
-  professionalName,
   checkout,
   cancelled,
   page = 0,
@@ -108,6 +109,60 @@ export async function PaymentView({
     Object.entries(values).map(([name, value]) => (
       <input key={name} type="hidden" name={name} value={value} />
     ));
+  const activePayments = payments.filter(
+    (p) =>
+      ["creating", "approval_pending", "processing"].includes(p.status) ||
+      refunds.some((r) => r.payment_id === p.id && r.status === "processing"),
+  );
+  function refundControl(p: (typeof payments)[number]) {
+    const reserved = refunds
+      .filter(
+        (r) =>
+          r.payment_id === p.id &&
+          ["completed", "processing"].includes(r.status),
+      )
+      .reduce((sum, r) => sum + Number(r.amount_cents), 0);
+    const remaining = Number(p.amount_cents) - reserved;
+    if (role !== "professional" || p.status !== "completed" || remaining <= 0)
+      return null;
+    return (
+      <details className="mt-4">
+        <summary className="cursor-pointer text-sm font-medium">
+          Refund this payment
+        </summary>
+        <ActionForm actionName="paypal-refund" className="stack mt-4">
+          {hidden({
+            id: engagementId,
+            payment: p.id,
+            operationKey: randomUUID(),
+          })}
+          <label htmlFor={`refund-amount-${p.id}`}>Refund amount (USD)</label>
+          <input
+            id={`refund-amount-${p.id}`}
+            name="amount"
+            type="number"
+            min="0.01"
+            max={(remaining / 100).toFixed(2)}
+            step="0.01"
+            defaultValue={(remaining / 100).toFixed(2)}
+            required
+          />
+          <label htmlFor={`refund-reason-${p.id}`}>Refund reason</label>
+          <textarea
+            id={`refund-reason-${p.id}`}
+            name="reason"
+            maxLength={2000}
+            required
+          />
+          <p className="muted text-xs">
+            Returns funds to the original client payment. This does not change
+            the milestone or accepted terms.
+          </p>
+          <Button disabled={!!setup}>Refund with PayPal sandbox</Button>
+        </ActionForm>
+      </details>
+    );
+  }
   return (
     <div className="stack min-w-0">
       <section className="panel min-w-0">
@@ -120,11 +175,6 @@ export async function PaymentView({
             Export CSV
           </a>
         </div>
-        <p className="muted text-sm mt-3">
-          A shared record of payments to{" "}
-          {professionalName || "the professional"} and refunds to the client.
-          Sandbox only: no real money is moved.
-        </p>
         <div className="grid gap-4 sm:grid-cols-3 mt-5">
           {[
             ["Paid", gross],
@@ -139,19 +189,6 @@ export async function PaymentView({
             </div>
           ))}
         </div>
-        <p className="muted text-xs mt-3">
-          Totals include verified sandbox transactions only. Net paid subtracts
-          refunds; PayPal processing fees are separate. Requests and pending
-          payments are excluded. Milestone balances and payment controls are on
-          the{" "}
-          <Link
-            className="underline"
-            href={`/workspace/${engagementId}?tab=milestones`}
-          >
-            Milestones page
-          </Link>
-          .
-        </p>
         {setup && <p className="notice text-sm mt-4">{setup}</p>}
         {role === "professional" && (
           <div className="mt-5 border-t border-slate-200 pt-4">
@@ -165,14 +202,11 @@ export async function PaymentView({
                 : ""}
             </p>
             <div className="flex flex-wrap gap-3 mt-3">
-              <ActionForm actionName="paypal-connect">
-                {hidden({ id: engagementId })}
-                <Button variant="outline" disabled={!!setup}>
-                  {sellerResult.data?.payments_enabled
-                    ? "Reconnect PayPal sandbox"
-                    : "Connect PayPal sandbox"}
-                </Button>
-              </ActionForm>
+              <PayPalConnect
+                engagementId={engagementId}
+                connected={!!sellerResult.data?.payments_enabled}
+                disabled={!!setup}
+              />
               <ActionForm actionName="paypal-verify-seller">
                 {hidden({ id: engagementId })}
                 <Button
@@ -193,43 +227,35 @@ export async function PaymentView({
         </p>
       )}
       {returned && role === "client" && (
-        <section className="panel min-w-0">
-          <h3>Finish your sandbox payment</h3>
-          <p className="muted my-3">
-            Complete the approved PayPal checkout. The server verifies the
-            recipient and amount before recording payment.
-          </p>
-          <ActionForm actionName="paypal-status">
-            {hidden({ id: engagementId, payment: returned.id, capture: "yes" })}
-            <Button disabled={!!setup}>Complete sandbox payment</Button>
-          </ActionForm>
-        </section>
+        <PayPalCompletion
+          key={returned.id}
+          engagementId={engagementId}
+          paymentId={returned.id}
+        />
       )}
-      <section className="panel min-w-0">
-        <h3>{role === "client" ? "Send a bonus" : "Request a payment"}</h3>
+      <details className="panel min-w-0">
+        <summary className="cursor-pointer font-semibold">
+          {role === "client" ? "Send a payment" : "Request a payment"}
+        </summary>
         <p className="muted text-sm mt-3">
           {role === "client"
-            ? "Choose an amount and reason, then approve the bonus through PayPal."
+            ? "Choose an amount and reason, then approve the payment through PayPal."
             : "Request hourly billing or another payment outside a milestone. The client chooses whether to pay."}
         </p>
-        <ActionForm actionName="adhoc-payment-request" className="stack mt-4">
+        <ActionForm
+          actionName={
+            role === "client" ? "paypal-pay" : "adhoc-payment-request"
+          }
+          className="stack mt-4"
+        >
           {hidden({
             id: engagementId,
             operationKey: randomUUID(),
-            ...(role === "client" ? { category: "bonus" } : {}),
+            category: role === "client" ? "bonus" : "adhoc",
           })}
-          {role === "professional" && (
-            <div>
-              <label htmlFor="payment-category">Payment type</label>
-              <select id="payment-category" name="category">
-                <option value="hourly">Hourly billing</option>
-                <option value="adhoc">Other payment</option>
-              </select>
-            </div>
-          )}
           <div>
             <label htmlFor="payment-description">
-              {role === "client" ? "Bonus reason" : "What is this payment for?"}
+              What is this payment for?
             </label>
             <textarea
               id="payment-description"
@@ -256,10 +282,10 @@ export async function PaymentView({
             />
           </div>
           <Button>
-            {role === "client" ? "Create bonus" : "Request payment"}
+            {role === "client" ? "Pay with PayPal sandbox" : "Request payment"}
           </Button>
         </ActionForm>
-      </section>
+      </details>
       {!!pending.length && (
         <section className="panel min-w-0">
           <h3>Awaiting payment</h3>
@@ -285,18 +311,14 @@ export async function PaymentView({
           ))}
         </section>
       )}
-      {!!payments.length && (
+      {!!activePayments.length && (
         <section className="panel min-w-0">
           <h3>Payments and refunds</h3>
-          {payments.map((p) => {
+          {activePayments.map((p) => {
             const related = refunds.filter((r) => r.payment_id === p.id),
               refundTotal = related
                 .filter((r) => r.status === "completed")
-                .reduce((sum, r) => sum + Number(r.amount_cents), 0),
-              reserved = related
-                .filter((r) => ["completed", "processing"].includes(r.status))
                 .reduce((sum, r) => sum + Number(r.amount_cents), 0);
-            const remaining = Number(p.amount_cents) - reserved;
             const request = requests.find((r) => r.id === p.request_id);
             return (
               <article
@@ -325,16 +347,27 @@ export async function PaymentView({
                       ? `Order: ${p.order_id}`
                       : "Checkout creation pending"}
                 </p>
-                {p.order_id && (
-                  <ActionForm actionName="paypal-status" className="mt-3">
+                {p.order_id &&
+                  ["creating", "approval_pending", "processing"].includes(
+                    p.status,
+                  ) && (
+                    <ActionForm actionName="paypal-status" className="mt-3">
+                      {hidden({ id: engagementId, payment: p.id })}
+                      <Button variant="outline" disabled={!!setup}>
+                        Refresh payment status
+                      </Button>
+                    </ActionForm>
+                  )}
+                {role === "client" && p.status === "approval_pending" && (
+                  <ActionForm actionName="paypal-cancel" className="mt-3">
                     {hidden({ id: engagementId, payment: p.id })}
                     <Button variant="outline" disabled={!!setup}>
-                      Refresh payment status
+                      Cancel payment
                     </Button>
                   </ActionForm>
                 )}
                 {role === "client" &&
-                  p.status === "processing" &&
+                  ["approval_pending", "processing"].includes(p.status) &&
                   p.id !== checkout && (
                     <ActionForm actionName="paypal-status" className="mt-3">
                       {hidden({
@@ -343,7 +376,7 @@ export async function PaymentView({
                         capture: "yes",
                       })}
                       <Button variant="outline" disabled={!!setup}>
-                        Retry completion
+                        Complete payment
                       </Button>
                     </ActionForm>
                   )}
@@ -373,54 +406,6 @@ export async function PaymentView({
                     )}
                   </div>
                 ))}
-                {role === "professional" &&
-                  p.status === "completed" &&
-                  remaining > 0 && (
-                    <details className="mt-4">
-                      <summary className="cursor-pointer text-sm font-medium">
-                        Refund this payment
-                      </summary>
-                      <ActionForm
-                        actionName="paypal-refund"
-                        className="stack mt-4"
-                      >
-                        {hidden({
-                          id: engagementId,
-                          payment: p.id,
-                          operationKey: randomUUID(),
-                        })}
-                        <label htmlFor={`refund-amount-${p.id}`}>
-                          Refund amount (USD)
-                        </label>
-                        <input
-                          id={`refund-amount-${p.id}`}
-                          name="amount"
-                          type="number"
-                          min="0.01"
-                          max={(remaining / 100).toFixed(2)}
-                          step="0.01"
-                          defaultValue={(remaining / 100).toFixed(2)}
-                          required
-                        />
-                        <label htmlFor={`refund-reason-${p.id}`}>
-                          Refund reason
-                        </label>
-                        <textarea
-                          id={`refund-reason-${p.id}`}
-                          name="reason"
-                          maxLength={2000}
-                          required
-                        />
-                        <p className="muted text-xs">
-                          Returns funds to the original client payment. This
-                          does not change the milestone or accepted terms.
-                        </p>
-                        <Button disabled={!!setup}>
-                          Refund with PayPal sandbox
-                        </Button>
-                      </ActionForm>
-                    </details>
-                  )}
               </article>
             );
           })}
@@ -459,6 +444,13 @@ export async function PaymentView({
                     </td>
                     <td className="p-3 min-w-48 max-w-md whitespace-pre-wrap break-words">
                       {entry.description}
+                      {entry.kind === "payment_completed" &&
+                        (() => {
+                          const payment = payments.find(
+                            (p) => p.id === entry.payment_id,
+                          );
+                          return payment ? refundControl(payment) : null;
+                        })()}
                     </td>
                     <td className="p-3 text-right whitespace-nowrap">
                       {entry.kind === "refund_completed" ? "−" : ""}

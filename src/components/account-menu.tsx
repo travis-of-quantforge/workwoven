@@ -1,16 +1,25 @@
 import Link from "next/link";
 import { logout, switchRole } from "@/app/actions";
 import { Button } from "./ui/button";
+import { Notifications } from "./notifications";
+import { database } from "@/lib/supabase/server";
 
-export function AccountMenu({
+export async function AccountMenu({
   activeRole,
   isAdmin = false,
 }: {
   activeRole: "client" | "professional";
   isAdmin?: boolean;
 }) {
+  const db = await database();
+  const [notices, count] = await Promise.all([
+    db.from("notifications").select("id,engagement_id,kind,record_id,seen_at,created_at,title").is("superseded_at",null).order("seen_at", {nullsFirst:true}).order("created_at", {ascending:false}).limit(50),
+    db.from("notifications").select("id", {count:"exact", head:true}).is("superseded_at",null).is("seen_at", null),
+  ]);
   const otherRole = activeRole === "client" ? "professional" : "client";
   return (
+    <div className="flex items-center gap-3">
+    <Notifications items={notices.data || []} unread={count.error ? null : count.count || 0} error={!!notices.error || !!count.error} />
     <details className="relative z-20 text-sm">
       <summary className="cursor-pointer rounded-md border border-slate-300 bg-white px-3 py-2 font-medium text-slate-800">
         Account · {activeRole === "client" ? "Client" : "Professional"}
@@ -43,5 +52,6 @@ export function AccountMenu({
         </form>
       </div>
     </details>
+    </div>
   );
 }

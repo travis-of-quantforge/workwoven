@@ -1,5 +1,4 @@
 import { ActionForm } from "@/components/action-form";
-import { Notifications } from "@/components/notifications";
 export const dynamic = "force-dynamic";
 import Link from "next/link";
 import {
@@ -12,6 +11,7 @@ import { configured, database } from "@/lib/supabase/server";
 import { isWorkspaceAdmin } from "@/lib/admin-access";
 import { AccountMenu } from "@/components/account-menu";
 import { Button } from "@/components/ui/button";
+import { ContractCreation } from "@/components/contract-creation";
 export default async function Home() {
   const db = configured() ? await database() : null;
   const user = db ? (await db.auth.getUser()).data.user : null;
@@ -43,13 +43,6 @@ export default async function Home() {
   const visibleProjects = projects?.filter((p) =>
     memberships?.some((m) => m.engagement_id === p.id && m.role === activeRole),
   );
-  const { data: notices } = user
-    ? await db!
-        .from("notifications")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(50)
-    : { data: [] };
   return (
     <div className="mx-auto max-w-6xl px-6 py-8">
       <header className="flex flex-wrap gap-4 items-center justify-between border-b border-slate-200 pb-6">
@@ -99,7 +92,6 @@ export default async function Home() {
           </p>
         </div>
       )}
-      {user && <Notifications items={notices || []} />}
       {user && invitations.error && <p role="alert" className="notice mb-6">Invitations could not be loaded. Refresh to retry.</p>}
       {!!invitations.data?.length && <section aria-label="Pending invitations" className="panel mb-7">
         <h2>Pending invitations</h2>
@@ -144,6 +136,7 @@ export default async function Home() {
               You will join as the {activeRole}. You can invite the{" "}
               {activeRole === "client" ? "professional" : "client"} after creation.
             </p>
+            <ContractCreation />
             <Button>Create engagement</Button>
           </ActionForm>
           <div className="border-t border-slate-100 mt-6 pt-5 flex gap-2 text-xs muted">

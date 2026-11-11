@@ -92,6 +92,15 @@ it("requires original-capture-linked refunds of the exact currency and amount", 
     cents: 1234,
     status: "completed",
   });
+  expect(verifiedRefund({...refund,links:[{rel:"up",href:"https://api.sandbox.paypal.com/v2/payments/captures/CAPTURE123"}]},"CAPTURE123",1234).status).toBe("completed");
+  for (const href of [
+    "https://evil.example/v2/payments/captures/CAPTURE123",
+    "https://api.paypal.com/v2/payments/captures/CAPTURE123",
+    "http://api.sandbox.paypal.com/v2/payments/captures/CAPTURE123",
+    "https://user:pass@api.sandbox.paypal.com/v2/payments/captures/CAPTURE123",
+    "https://api.sandbox.paypal.com:444/v2/payments/captures/CAPTURE123",
+    "https://api.sandbox.paypal.com/v2/payments/captures/OTHER",
+  ]) expect(() => verifiedRefund({...refund,links:[{rel:"up",href}]},"CAPTURE123",1234)).toThrow();
   expect(() => verifiedRefund(refund, "OTHER", 1234)).toThrow();
   expect(() => verifiedRefund(refund, "CAPTURE123", 1235)).toThrow();
   expect(() =>

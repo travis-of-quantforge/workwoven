@@ -27,13 +27,13 @@ function EvidenceLinks({ result, id }: { result: AgentResult; id: string }) {
       {result.citations.map((c) => {
         const [kind, record] = c.ref.split(":");
         const tab =
-          kind === "agreement"
+          kind === "contract" ? "contract" : kind === "agreement"
             ? "milestones"
             : kind === "attachment"
               ? "files"
               : "discussion";
         const anchor =
-          kind === "agreement"
+          kind === "contract" ? "contract-archive" : kind === "agreement"
             ? "version"
             : kind === "attachment"
               ? "file"
@@ -42,7 +42,7 @@ function EvidenceLinks({ result, id }: { result: AgentResult; id: string }) {
           <li key={c.ref}>
             <Link
               className="underline text-xs text-teal-800"
-              href={`/workspace/${id}?tab=${tab}${c.visibility === "shared" ? "" : "&context=private"}${kind === "message" ? `&message=${record}` : kind === "agreement" ? `&version=${record}` : ""}#${anchor}-${record}`}
+              href={`/workspace/${id}?tab=${tab}${c.visibility === "shared" ? "" : "&context=private"}${kind === "message" ? `&message=${record}` : ["agreement","contract"].includes(kind) ? `&version=${record}` : ""}#${anchor}-${record}`}
             >
               {kind} ·{" "}
               {kind === "agreement"
@@ -510,7 +510,8 @@ export function AgentPanel({
       )}
       {!compact && (
         <p className="muted text-xs mt-5">
-          No automatic refreshes or charges. Internal application failures and
+          Chat and summary refreshes run when requested. Automatic discussion
+          checks are managed in Contract. Internal application failures and
           unusable provider results are platform-funded. Low tokens pause only
           this agent.
         </p>

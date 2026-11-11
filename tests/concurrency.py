@@ -97,3 +97,33 @@ with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
     refund_replays=list(executor.map(refund_replay,range(3)))
 assert len(set(refund_replays))==1,refund_replays
 assert require(f"select sum(amount_cents) from public.payment_refunds where payment_id='{payment}' and status='processing'")=='9000'
+
+# Cancellation and capture must never both win the same pending checkout.
+for attempt in range(4):
+    request=require(f"set role authenticated; select set_config('request.jwt.claim.sub','{uid}',false); select public.create_adhoc_payment_request('{engagement}','bonus','Cancellation race',500,'{uuid.uuid4()}')").splitlines()[-1]
+    checkout_id=require(f"set role authenticated; select set_config('request.jwt.claim.sub','{uid}',false); select public.begin_paypal_payment('{request}','{uuid.uuid4()}')").splitlines()[-1]
+    order_id=f'CANCELRACE{attempt}'
+    require(f"select public.record_paypal_payment('{checkout_id}','{order_id}',null,'approval_pending')")
+    queries=[f"select public.cancel_paypal_checkout('{checkout_id}','{uid}','{order_id}')",
+             f"set role authenticated; select set_config('request.jwt.claim.sub','{uid}',false); select public.authorize_paypal_capture('{checkout_id}')"]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        results=list(executor.map(sql,queries))
+    assert sum(result.returncode==0 for result in results)==1,[(result.returncode,result.stderr) for result in results]
+    assert require(f"select status from public.payment_transactions where id='{checkout_id}'") in ('cancelled','processing')
+
+# Contract proposals serialize on the engagement; both parties approve the
+# exact winning version, with no approval inferred from submission.
+contract_text='Only CSV dashboards are included. Email reports require an approved revision.'
+def propose_contract(actor):
+    return sql(f"set role authenticated; select set_config('request.jwt.claim.sub','{actor}',false); select public.propose_contract('{engagement}','{contract_text}',null,'{uuid.uuid4()}')")
+with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+    contract_results=list(executor.map(propose_contract,[uid,pro]))
+assert sum(result.returncode==0 for result in contract_results)==1
+contract_version=require(f"select latest_version_id from public.engagement_contracts where engagement_id='{engagement}'")
+assert require(f"select count(*) from public.contract_approvals where version_id='{contract_version}'")=='0'
+def approve_contract(actor):
+    return require(f"set role authenticated; select set_config('request.jwt.claim.sub','{actor}',false); select public.approve_contract('{contract_version}')")
+with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+    list(executor.map(approve_contract,[uid,pro]))
+assert require(f"select accepted_version_id from public.engagement_contracts where engagement_id='{engagement}'")==contract_version
+assert require(f"select count(*) from public.contract_approvals where version_id='{contract_version}'")=='2'

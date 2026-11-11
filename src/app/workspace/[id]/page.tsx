@@ -1,4 +1,8 @@
 import { z } from "zod";
+import { after } from "next/server";
+import { ContractView } from "@/components/contract-view";
+import { processQueuedAssessment, recoverExpiredAssessments } from "@/lib/ai/scope-monitor";
+export const maxDuration = 120;
 import { FileList } from "@/components/file-list";
 import { ReputationView } from "@/components/reputation-view";
 import { CalendarView } from "@/components/calendar-view";
@@ -12,7 +16,6 @@ import { ActionForm } from "@/components/action-form";
 import { ThreadedMessages } from "@/components/threaded-messages";
 import { DiscussionReadTracker } from "@/components/discussion-read-tracker";
 import { MessageAttachmentPicker } from "@/components/message-attachment-picker";
-import { Notifications } from "@/components/notifications";
 import { AccountMenu } from "@/components/account-menu";
 import { isWorkspaceAdmin } from "@/lib/admin-access";
 import { ConcernView } from "@/components/concern-view";
@@ -32,6 +35,7 @@ import { ShareDraft } from "@/components/share-draft";
 const tabs = [
   "discussion",
   "milestones",
+  "contract",
   "files",
   "calendar",
   "concerns",
@@ -99,7 +103,6 @@ export default async function Workspace({
     summaryRun,
     messagesResult,
     filesResult,
-    noticesResult,
     readResult,
   ] = await Promise.all([
     db.rpc("party_identities", { e: id }),
@@ -157,12 +160,6 @@ export default async function Workspace({
           .order("created_at", { ascending: false })
           .limit(1000)
       : { data: [] },
-    db
-      .from("notifications")
-      .select("*")
-      .eq("engagement_id", id)
-      .order("created_at", { ascending: false })
-      .limit(50),
     tab === "discussion"
       ? db
           .from("discussion_reads")
@@ -177,7 +174,6 @@ export default async function Workspace({
   const recentMessages = messagesResult.data;
   const messagesError = messagesResult.error;
   const files = filesResult.data;
-  const notices = noticesResult.data;
   const read = readResult.data;
   const parsedSummary = agentResultSchema.safeParse(summaryRun.data?.result);
   const creditData =
@@ -228,6 +224,12 @@ export default async function Workspace({
     ? await db.from("milestone_events").select("message_id,milestone_id,version_id,event").in("message_id", messages.map(m => m.id))
     : { data: [] };
   const fileIds = (files || []).map((f) => f.id);
+  const [assessmentRows,pendingMonitor] = tab==="discussion" && visibility==="shared"
+    ? await Promise.all([
+      messages.length ? db.from("message_assessments").select("message_id,notice_message_id,status,reason,result").eq("engagement_id",id).or(`message_id.in.(${messages.map(m=>m.id).join(",")}),notice_message_id.in.(${messages.map(m=>m.id).join(",")})`).limit(100) : Promise.resolve({data:[]}),
+      db.from("message_assessments").select("id").eq("engagement_id",id).in("status",["queued","running"]).limit(1).maybeSingle(),
+    ]) : [{data:[]},{data:null}];
+  if(pendingMonitor.data) after(async()=>{await recoverExpiredAssessments(id);await processQueuedAssessment(id);});
   const fileExtras =
     tab === "files" && fileIds.length
       ? await Promise.all([
@@ -338,10 +340,9 @@ export default async function Workspace({
               </Link>
             ))}
           </nav>
-          {["discussion", "active"].includes(project.status) && <details className="my-4"><summary className="cursor-pointer text-sm">Finish engagement</summary><ReputationView db={db} id={id} role={role} userId={user.id} accepted={project.accepted_version_id} status={project.status} isDemo={project.is_demo} /></details>}
+          {["discussion", "active"].includes(project.status) && <details className="my-4"><summary className="cursor-pointer text-sm">End engagement</summary><ReputationView db={db} id={id} role={role} userId={user.id} accepted={project.accepted_version_id} status={project.status} isDemo={project.is_demo} /></details>}
         </header>
         <div className="p-5 lg:p-9 max-w-6xl mx-auto">
-          <Notifications items={notices || []} />
           {["completed", "cancelled"].includes(project.status) &&
             project.accepted_version_id && tab !== "discussion" && (
               <p className="notice mb-6">
@@ -444,6 +445,7 @@ export default async function Workspace({
                     members={members}
                     files={files || []}
                     milestoneEvents={milestoneEvents.data || []}
+                    assessments={assessmentRows.data || []}
                   />
                   {visibility === "shared" && !query.message && pageNumber === 0 && !messagesError && !!unread && messages?.[0] && (
                     <DiscussionReadTracker engagementId={id} lastMessage={messages[0].id} />
@@ -608,6 +610,7 @@ export default async function Workspace({
             <PaymentView db={db} engagementId={id} acceptedVersion={project.accepted_version_id}
               checkout={query.checkout} cancelled={query.cancelled} page={Math.min(10000, Math.max(0, Number.parseInt(query.ledger_page || "0", 10) || 0))} role={role} professionalName={identities.data?.find((party: {role: string}) => party.role === "professional")?.display_name || ""} />
           )}
+          {tab === "contract" && <ContractView db={db} id={id} userId={user.id} selected={query.version}/>}
         </div>
       </main>
     </div>

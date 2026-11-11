@@ -1,6 +1,8 @@
 import { timingSafeEqual } from "node:crypto";
 import { adminDatabase } from "@/lib/supabase/admin";
+import { processQueuedAssessment, recoverExpiredAssessments } from "@/lib/ai/scope-monitor";
 export const runtime = "nodejs";
+export const maxDuration = 120;
 export async function POST(request: Request) {
   const secret = process.env.MAINTENANCE_SECRET;
   if (!secret || secret.length < 32)
@@ -21,6 +23,8 @@ export async function POST(request: Request) {
       { error: "Recovery could not complete" },
       { status: 503 },
     );
+  await recoverExpiredAssessments();
+  await processQueuedAssessment();
   return Response.json(
     { releasedReservations: data },
     { headers: { "Cache-Control": "no-store" } },

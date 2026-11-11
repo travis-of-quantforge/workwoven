@@ -1,5 +1,16 @@
 import { z } from "zod";
 import { centsText } from "./payment-ledger";
+export function checkoutAppUrl(configured: string, origin?: string) {
+  const base = new URL(configured);
+  if (!origin) return base.origin;
+  const requested = new URL(origin);
+  const loopback = ["localhost", "127.0.0.1", "[::1]"];
+  if (requested.origin !== base.origin && !(
+    loopback.includes(base.hostname) && loopback.includes(requested.hostname) &&
+    base.protocol === requested.protocol && base.port === requested.port
+  )) throw new Error("Checkout return origin does not match Workspace configuration");
+  return requested.origin;
+}
 const object = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -311,6 +322,7 @@ export function verifiedOrder(
   }
   return {
     captureId: capture ? String(capture.id) : null,
+    cancellable: !capture && ["CREATED", "SAVED", "APPROVED", "PAYER_ACTION_REQUIRED"].includes(String(data.status)),
     completed:
       !!capture &&
       ["COMPLETED", "PARTIALLY_REFUNDED", "REFUNDED"].includes(
@@ -336,7 +348,8 @@ export function verifiedRefund(
   const url = new URL(String(up?.href || "https://invalid.invalid"));
   if (
     url.protocol !== "https:" ||
-    url.hostname !== "api-m.sandbox.paypal.com" ||
+    !["api-m.sandbox.paypal.com", "api.sandbox.paypal.com"].includes(url.hostname) ||
+    url.username !== "" || url.password !== "" || url.port !== "" || url.search !== "" || url.hash !== "" ||
     url.pathname !== `/v2/payments/captures/${captureId}` ||
     amount.currency_code !== "USD" ||
     typeof data.id !== "string" ||

@@ -45,6 +45,12 @@ export async function cleanupIntegrationRun(run, admin) {
  delete from public.discussion_reads where engagement_id in(select id from fixture_engagements);
  delete from public.message_mentions where message_id in(select id from public.messages where engagement_id in(select id from fixture_engagements));
  delete from public.agent_runs where engagement_id in(select id from fixture_engagements);
+ delete from public.message_assessments where engagement_id in(select id from fixture_engagements);
+ delete from public.scope_monitor_settings where engagement_id in(select id from fixture_engagements);
+ update public.engagement_contracts set latest_version_id=null,accepted_version_id=null where engagement_id in(select id from fixture_engagements);
+ delete from public.contract_approvals where version_id in(select id from public.contract_versions where engagement_id in(select id from fixture_engagements));
+ delete from public.contract_versions where engagement_id in(select id from fixture_engagements);
+ delete from public.engagement_contracts where engagement_id in(select id from fixture_engagements);
  delete from public.share_events where engagement_id in(select id from fixture_engagements);
  delete from public.audit_events where engagement_id in(select id from fixture_engagements);
  delete from public.review_reports where review_id in(select id from public.reviews where engagement_id in(select id from fixture_engagements));

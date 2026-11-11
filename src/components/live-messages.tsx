@@ -40,6 +40,7 @@ export function LiveMessages({ engagementId }: { engagementId: string }) {
             if (!disposed) router.refresh();
           },
         )
+        .on("postgres_changes",{event:"UPDATE",schema:"public",table:"message_assessments",filter:`engagement_id=eq.${engagementId}`},()=>{if(!disposed) router.refresh();})
         .subscribe((status) => {
           if (disposed) return;
           if (status === "SUBSCRIBED") {

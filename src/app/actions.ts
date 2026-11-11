@@ -1,6 +1,10 @@
 "use server";
 import { redirect, unstable_rethrow } from "next/navigation";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, refresh } from "next/cache";
+import { headers } from "next/headers";
+import { after } from "next/server";
+import { contractTemplates } from "@/lib/contracts";
+import { processQueuedAssessment } from "@/lib/ai/scope-monitor";
 import { z } from "zod";
 import { createHash, randomUUID } from "node:crypto";
 import { adminDatabase } from "@/lib/supabase/admin";
@@ -17,7 +21,7 @@ import { activeInvitation } from "@/lib/invitations";
 import { isWorkspaceAdmin } from "@/lib/admin-access";
 import { milestonePlanSchema, changeSchema } from "@/lib/milestones";
 import { parseUsd, scopeSchema, visibilitySchema } from "@/lib/domain";
-import { paypalSetupReason, refreshSeller, onboardingLink, checkoutLink, reconcilePayment, executeRefund } from "@/lib/paypal-service";
+import { paypalSetupReason, refreshSeller, onboardingLink, checkoutLink, reconcilePayment, executeRefund, cancelPayPalPayment } from "@/lib/paypal-service";
 import { PayPalError } from "@/lib/paypal-api";
 const id = (f: FormData) => z.uuid().parse(f.get("id"));
 async function command(name: string, args: Record<string, unknown>) {
@@ -120,8 +124,11 @@ export async function switchRole(f: FormData) {
   redirect("/");
 }
 export async function createEngagement(f: FormData) {
-  const e = await command("create_engagement", {
+  const template=z.enum(["general","support","custom"]).parse(f.get("contractTemplate") || "general");
+  const body=z.string().trim().min(20).max(20000).parse(f.get("contractBody") ?? contractTemplates.find(t=>t.id===template)!.body);
+  const e = await command("create_engagement_with_contract", {
     p_title: z.string().trim().min(1).max(160).parse(f.get("title")),
+    body,template,
   });
   redirect(`/workspace/${e}`);
 }
@@ -137,7 +144,24 @@ export async function postMessage(f: FormData) {
   } else {
     await command("post_discussion_message", { e, v, b, parent, mentions });
   }
+  if(v==="shared") after(()=>processQueuedAssessment(e));
   revalidatePath(`/workspace/${e}`);
+}
+export async function proposeContract(f:FormData) {
+  const e=id(f);
+  await command("propose_contract",{e,body:z.string().trim().min(20).max(20000).parse(f.get("body")),expected:z.uuid().nullable().parse(f.get("expected") || null),k:z.uuid().parse(f.get("operationKey"))});
+  revalidatePath(`/workspace/${e}`);
+}
+export async function approveContract(f:FormData) {
+  const e=id(f);
+  const {db}=await authenticated();
+  const v=z.uuid().parse(f.get("version"));
+  const version=await db.from("contract_versions").select("engagement_id").eq("id",v).eq("engagement_id",e).single();
+  if(version.error) throw new WorkspaceActionError("Contract unavailable.");
+  await command("approve_contract",{v});revalidatePath(`/workspace/${e}`);
+}
+export async function setScopeMonitor(f:FormData) {
+  const e=id(f);await command("set_scope_monitor",{e,enabled:z.enum(["true","false"]).parse(f.get("enabled"))==="true"});revalidatePath(`/workspace/${e}`);
 }
 export async function shareContent(f: FormData) {
   const e = id(f);
@@ -147,6 +171,7 @@ export async function shareContent(f: FormData) {
     e,
     b: z.string().trim().min(1).max(30000).parse(f.get("body")),
   });
+  after(()=>processQueuedAssessment(e));
   revalidatePath(`/workspace/${e}`);
 }
 export async function submitScope(f: FormData) {
@@ -267,6 +292,15 @@ export async function connectPayPalSeller(f: FormData) {
   try { url = await onboardingLink(user.id, e); } catch (error) { if (error instanceof PayPalError) throw new WorkspaceActionError(error.message); throw error; }
   redirect(url);
 }
+export async function openPayPalSellerConnection(f: FormData) {
+  try {
+    const e = id(f), { user } = await paymentMember(e, "professional");
+    return { url: await onboardingLink(user.id, e), error: "" };
+  } catch (error) {
+    unstable_rethrow(error);
+    return { url: "", error: error instanceof PayPalError ? error.message : actionErrorMessage(error) };
+  }
+}
 export async function verifyPayPalSeller(f: FormData) {
   const e = id(f), { user } = await paymentMember(e, "professional");
   await refreshSeller(user.id);
@@ -281,16 +315,29 @@ export async function payWithPayPal(f: FormData) {
   const e = id(f), { db } = await paymentMember(e, "client");
   if (paypalSetupReason()) throw new WorkspaceActionError(paypalSetupReason()!);
   let requestId: string;
-  if (f.get("task")) requestId = await command("request_milestone_payment", { e, t: z.uuid().parse(f.get("task")), k: z.uuid().parse(f.get("operationKey")) });
+  if (f.get("description") !== null) requestId = await command("create_adhoc_payment_request", {
+    e, category: "bonus", description: z.string().trim().min(1).max(2000).parse(f.get("description")),
+    cents: parseUsd(f.get("amount")), k: z.uuid().parse(f.get("operationKey")),
+  });
+  else if (f.get("task")) requestId = await command("request_milestone_payment", { e, t: z.uuid().parse(f.get("task")), k: z.uuid().parse(f.get("operationKey")) });
   else requestId = z.uuid().parse(f.get("request"));
   const request = await db.from("payment_requests").select("payee_id,engagement_id").eq("id", requestId).eq("engagement_id", e).single();
   if (request.error) throw new WorkspaceActionError("Payment request unavailable.");
   await refreshSeller(request.data.payee_id);
   const p = await command("begin_paypal_payment", { q: requestId, k: z.uuid().parse(f.get("operationKey")) });
   let url: string;
-  try { url = await checkoutLink(p); } catch (error) { if (error instanceof PayPalError) throw new WorkspaceActionError(error.message); throw error; }
+  try { url = await checkoutLink(p, (await headers()).get("origin") || undefined); } catch (error) { if (error instanceof PayPalError) throw new WorkspaceActionError(error.message); throw error; }
   revalidatePath(`/workspace/${e}`);
   redirect(url);
+}
+export async function cancelPayPalCheckout(f: FormData) {
+  const e = id(f), { db, user } = await paymentMember(e, "client");
+  const p = z.uuid().parse(f.get("payment"));
+  const payment = await db.from("payment_transactions").select("payer_id").eq("id", p).eq("engagement_id", e).single();
+  if (payment.error || payment.data.payer_id !== user.id) throw new WorkspaceActionError("Payment unavailable.");
+  try { await cancelPayPalPayment(p, user.id); }
+  catch (error) { if (error instanceof PayPalError) throw new WorkspaceActionError(error.message); throw error; }
+  finally { revalidatePath(`/workspace/${e}`); }
 }
 export async function updatePayPalPayment(f: FormData) {
   const e = id(f), { db, user } = await paymentMember(e);
@@ -471,6 +518,7 @@ export async function markNotificationSeen(f: FormData) {
   });
   revalidatePath("/");
   revalidatePath(`/workspace/${id(f)}`);
+  refresh();
 }
 export async function resolvePartial(f: FormData) {
   const e = id(f);
@@ -825,6 +873,9 @@ export async function workspaceFormAction(
     partial: resolvePartial,
     "credit-refund": requestCreditRefund,
     create: createEngagement,
+    "contract-propose": proposeContract,
+    "contract-approve": approveContract,
+    "scope-monitor": setScopeMonitor,
     message: postMessage,
     share: shareContent,
     scope: submitScope,
@@ -841,6 +892,7 @@ export async function workspaceFormAction(
     "paypal-verify-seller": verifyPayPalSeller,
     "paypal-pay": payWithPayPal,
     "paypal-status": updatePayPalPayment,
+    "paypal-cancel": cancelPayPalCheckout,
     "paypal-refund": refundPayPalPayment,
     accept: acceptInvite,
     "accept-received": acceptReceivedInvite,

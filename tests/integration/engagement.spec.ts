@@ -801,7 +801,7 @@ test("two authenticated parties: grant, invite, private isolation, threads, file
       .click();
     await expect(pp.getByRole("status")).toHaveText("Saved.");
     await cp.goto(`/workspace/${e}?tab=discussion`);
-    await cp.getByText("Finish engagement", { exact: true }).first().click();
+    await cp.getByText("End engagement", { exact: true }).first().click();
     await cp
       .getByLabel("Outcome reason", { exact: true })
       .fill("Accepted delivery and handover are complete.");

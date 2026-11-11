@@ -110,7 +110,7 @@ test("completion transition preserves review form and publishes only after both 
       [pp, "professional"],
     ] as const) {
       if (role === "professional") await page.reload();
-      await page.getByText("Finish engagement", { exact: true }).first().click();
+      await page.getByText("End engagement", { exact: true }).first().click();
       await page
         .getByLabel("Outcome reason", { exact: true })
         .fill("The accepted work has been completed and handed over.");

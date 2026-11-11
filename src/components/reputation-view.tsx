@@ -57,7 +57,7 @@ export async function ReputationView({
       {isOpen && (
         <section className="panel">
           <p className="eyebrow">Engagement outcome</p>
-          <h2 className="mt-3">Finish engagement</h2>
+          <h2 className="mt-3">End engagement</h2>
           <p className="muted mt-3">
             Status: {status}. Closing an engagement does not settle a concern,
             execute a refund or erase accepted obligations. Completion requires
