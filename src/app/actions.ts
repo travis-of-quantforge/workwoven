@@ -17,7 +17,7 @@ import {
 } from "@/lib/action-errors";
 import { localToUtc } from "@/lib/calendar";
 import { sendInvitationEmail } from "@/lib/invitation-email";
-import { activeInvitation } from "@/lib/invitations";
+import { activeInvitation, invitationHasAccount } from "@/lib/invitations";
 import { isWorkspaceAdmin } from "@/lib/admin-access";
 import { milestonePlanSchema, changeSchema } from "@/lib/milestones";
 import { parseUsd, scopeSchema, visibilitySchema } from "@/lib/domain";
@@ -81,7 +81,7 @@ export async function login(f: FormData) {
     acceptance.set("token", invitation);
     await acceptInvite(acceptance);
   }
-  const { error } =
+  const { data, error } =
     signup
       ? await db.auth.signUp({
           email,
@@ -92,6 +92,11 @@ export async function login(f: FormData) {
           },
         })
       : await db.auth.signInWithPassword({ email, password });
+  // With confirmation enabled Supabase can obscure a duplicate signup by
+  // returning a successful fake user with no identities. It did not send mail.
+  if (signup && ((!error && data.user?.identities?.length === 0) ||
+    ["email_exists", "user_already_exists"].includes(error?.code || "")))
+    redirect(`/login?mode=login${invitationQuery}&notice=${encodeURIComponent("A user with this email already exists. Sign in with your existing password.")}`);
   if (error) redirect(`/login?mode=${signup ? "signup" : "login"}${invitationQuery}${nextQuery}&notice=` + encodeURIComponent(error.message));
   if (adminLogin) {
     const { data: { user } } = await db.auth.getUser();
@@ -130,17 +135,27 @@ export async function createEngagement(f: FormData) {
     p_title: z.string().trim().min(1).max(160).parse(f.get("title")),
     body,template,
   });
+  revalidatePath("/");
   redirect(`/workspace/${e}`);
+}
+export async function allocateEngagementTokens(f: FormData) {
+  const e=id(f);await command("allocate_existing_engagement_tokens",{e});
+  revalidatePath(`/workspace/${e}`);revalidatePath("/");
+}
+export async function archiveEngagement(f: FormData) {
+  const e=id(f);await command("set_engagement_archived",{e,archived:z.enum(["true","false"]).parse(f.get("archived"))==="true"});
+  revalidatePath("/");revalidatePath(`/workspace/${e}`,"layout");
 }
 export async function postMessage(f: FormData) {
   const e = id(f);
   const v = visibilitySchema.parse(f.get("visibility"));
-  const b = z.string().trim().min(1).max(30000).parse(f.get("body"));
+  const b = z.string().trim().max(30000).parse(f.get("body") ?? "");
   const parent = f.get("parent") ? z.uuid().parse(f.get("parent")) : null;
   const mentions: string[] = [];
-  const file = f.get("file");
-  if (file instanceof File && file.size > 0) {
-    await uploadMessageFile(e, v, b, parent, mentions, file);
+  const files = f.getAll("file").filter((file): file is File => file instanceof File && file.size > 0);
+  if (!b && !files.length) throw new WorkspaceActionError("Write a message or attach a file.");
+  if (files.length) {
+    await uploadMessageFiles(e, v, b, parent, mentions, files);
   } else {
     await command("post_discussion_message", { e, v, b, parent, mentions });
   }
@@ -159,6 +174,12 @@ export async function approveContract(f:FormData) {
   const version=await db.from("contract_versions").select("engagement_id").eq("id",v).eq("engagement_id",e).single();
   if(version.error) throw new WorkspaceActionError("Contract unavailable.");
   await command("approve_contract",{v});revalidatePath(`/workspace/${e}`);
+}
+export async function retryConversationCheck(f: FormData) {
+  const e=id(f);
+  await command("retry_message_assessment",{e,m:z.uuid().parse(f.get("message"))});
+  after(()=>processQueuedAssessment(e));
+  revalidatePath(`/workspace/${e}`);
 }
 export async function reviewConversation(f: FormData) {
   const e = id(f);
@@ -295,6 +316,8 @@ async function paymentMember(e: string, role?: string) {
   const auth = await authenticated();
   const member = await auth.db.from("memberships").select("role").eq("engagement_id", e).eq("user_id", auth.user.id).single();
   if (member.error || (role && member.data?.role !== role)) throw new WorkspaceActionError("You do not have permission for this payment action.");
+  const project = await auth.db.from("engagements").select("status").eq("id",e).single();
+  if(project.error || !["discussion","active"].includes(project.data.status)) throw new WorkspaceActionError("This engagement has ended and is read-only.");
   return auth;
 }
 export async function connectPayPalSeller(f: FormData) {
@@ -310,6 +333,18 @@ export async function openPayPalSellerConnection(f: FormData) {
   } catch (error) {
     unstable_rethrow(error);
     return { url: "", error: error instanceof PayPalError ? error.message : actionErrorMessage(error) };
+  }
+}
+export async function checkPayPalSellerConnection(f: FormData) {
+  try {
+    const e=id(f),{user}=await paymentMember(e,"professional");
+    const seller=await refreshSeller(user.id);
+    return {connected:seller.payments,error:""};
+  } catch(error) {
+    unstable_rethrow(error);
+    const message=actionErrorMessage(error);
+    const pending=message.startsWith("PayPal seller setup is not complete.") || message.includes("(RESOURCE_NOT_FOUND)");
+    return {connected:false,error:pending?"":message};
   }
 }
 export async function verifyPayPalSeller(f: FormData) {
@@ -381,14 +416,12 @@ export async function acceptInvite(f: FormData) {
   const token = z.string().regex(/^[a-f0-9]{64}$/).parse(f.get("token"));
   const session = await database();
   const { data: { user: currentUser } } = await session.auth.getUser();
-  if (!currentUser?.email_confirmed_at)
-    redirect(`/login?mode=signup&invitation=${token}`);
-  // A browser may still be signed in as the inviter or another account.
-  // Only inspect the invitation identified by the secret link; the RPC below
-  // independently enforces email, expiry, membership and single-use rules.
   const invitation = await activeInvitation(token);
-  if (invitation && invitation.email.toLowerCase() !== currentUser.email?.toLowerCase())
-    redirect(`/login?mode=signup&invitation=${token}`);
+  if (!invitation) redirect("/login?notice=This+invitation+is+no+longer+available.");
+  if (!currentUser?.email_confirmed_at || invitation.email.toLowerCase() !== currentUser.email?.toLowerCase()) {
+    const mode = await invitationHasAccount(token) ? "login" : "signup";
+    redirect(`/login?mode=${mode}&invitation=${token}`);
+  }
   const e = await command("accept_invitation", {
     t: z
       .string()
@@ -418,64 +451,74 @@ async function finishInvitation(e: string) {
   revalidatePath("/");
   redirect(`/workspace/${e}`);
 }
-async function uploadMessageFile(
-  e: string,
-  v: z.infer<typeof visibilitySchema>,
-  b: string,
-  parent: string | null,
-  mentions: string[],
-  file: File,
+async function uploadMessageFiles(
+  e: string, v: z.infer<typeof visibilitySchema>, b: string,
+  parent: string | null, mentions: string[], files: File[], agentChat = false,
 ) {
-  const { db, user } = await authenticated();
-  if (file.size === 0 || file.size > 20971520)
-    throw new Error("Choose a file up to 20 MB.");
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  const validationError = validateUpload(bytes, file.type);
-  if (validationError) throw new WorkspaceActionError(validationError);
-  const { data: path, error } = await db.rpc("register_attachment", {
-    e,
-    v,
-    n: safeFilename(file.name),
-    mime: file.type,
-    bytes: file.size,
-  });
-  if (error) throw databaseActionError(error.code || "", error.message);
-  const uploaded = await db.storage
-    .from("engagement-files")
-    .upload(path, file, { contentType: file.type, upsert: false });
-  if (uploaded.error) {
-    await db.rpc("abort_attachment", { p: path });
-    throw new WorkspaceActionError(
-      "Upload did not finish. Please retry; no completed file was recorded.",
-    );
+  if (files.length > 10 || files.reduce((sum,file)=>sum+file.size,0)>20971520)
+    throw new WorkspaceActionError("Attach up to 10 files totalling 20 MB or less.");
+  // Validate every file before registering or uploading any of them.
+  const validated=[];
+  for(const file of files){
+    const bytes=new Uint8Array(await file.arrayBuffer());
+    const error=validateUpload(bytes,file.type);
+    if(error)throw new WorkspaceActionError(error);
+    validated.push({file,bytes});
   }
-  const confirmation = await db.rpc("confirm_attachment_with_message", {
-    p: path,
-    b,
-    parent,
-    mentions,
-  });
-  if (confirmation.error) {
-    const current = await db
-      .from("attachments")
-      .select("upload_status,source_message_id")
-      .eq("object_path", path)
-      .maybeSingle();
-    if (current.error)
-      throw new WorkspaceActionError(
-        "The upload status is uncertain. Refresh before retrying the message.",
-      );
-    if (current.data?.upload_status !== "ready" || !current.data.source_message_id) {
-      const removed = await db.storage.from("engagement-files").remove([path]);
-      if (!removed.error) await db.rpc("abort_attachment", { p: path });
-      throw databaseActionError(confirmation.error.code || "", confirmation.error.message);
+  const {db,user}=await authenticated();
+  const paths:string[]=[];
+  try {
+    for(const {file} of validated){
+      const registered=await db.rpc("register_attachment",{e,v,n:safeFilename(file.name),mime:file.type,bytes:file.size});
+      if(registered.error)throw databaseActionError(registered.error.code || "",registered.error.message);
+      paths.push(registered.data);
+      const uploaded=await db.storage.from("engagement-files").upload(registered.data,file,{contentType:file.type,upsert:false});
+      if(uploaded.error)throw new WorkspaceActionError("Upload did not finish. Please retry; no message was sent.");
+    }
+  } catch(error){
+    if(paths.length){
+      await db.storage.from("engagement-files").remove(paths);
+      for(const p of paths)await db.rpc("abort_attachment",{p});
+    }
+    throw error;
+  }
+  const confirmation=agentChat
+    ? await db.rpc("confirm_agent_attachments",{paths,b})
+    : await db.rpc("confirm_attachments_with_message",{paths,b,parent,mentions});
+  if(confirmation.error || !confirmation.data){
+    // A lost response may conceal a committed message: never delete ready files.
+    const current=await db.from("attachments").select("object_path,upload_status,source_message_id").in("object_path",paths);
+    if(current.error || current.data?.length!==paths.length)
+      throw new WorkspaceActionError("The upload status is uncertain. Refresh before retrying the message.");
+    const committed=current.data.every(a=>a.upload_status==="ready" && a.source_message_id && a.source_message_id===current.data[0].source_message_id);
+    if(!committed){
+      const pending=current.data.filter(a=>a.upload_status!=="ready").map(a=>a.object_path);
+      if(pending.length){
+        const removed=await db.storage.from("engagement-files").remove(pending);
+        if(!removed.error)for(const p of pending)await db.rpc("abort_attachment",{p});
+      }
+      if(confirmation.error)throw databaseActionError(confirmation.error.code || "",confirmation.error.message);
+      throw new WorkspaceActionError("The upload status is uncertain. Refresh before retrying the message.");
     }
   }
-  if (!confirmation.error && !confirmation.data)
-    throw new WorkspaceActionError(
-      "The upload status is uncertain. Refresh before retrying the message.",
-    );
-  await extractUploadedFile(path, user.id, file.type, bytes);
+  for(let i=0;i<validated.length;i++){
+    const {file,bytes}=validated[i];
+    await extractUploadedFile(paths[i],user.id,file.type,bytes);
+  }
+  return confirmation.data || (await db.from("attachments").select("source_message_id").eq("object_path",paths[0]).single()).data?.source_message_id;
+}
+export async function uploadAgentAttachments(f: FormData) {
+  try {
+    const e=z.uuid().parse(f.get("engagementId"));
+    const v=visibilitySchema.parse(f.get("visibility"));
+    const files=f.getAll("file").filter((file):file is File=>file instanceof File && file.size>0);
+    if(!files.length)throw new WorkspaceActionError("Choose at least one file.");
+    if(files.some(file=>!["text/plain","text/csv"].includes(file.type)))
+      throw new WorkspaceActionError("Agent chat attachments currently support UTF-8 TXT and CSV. Export other documents as text first.");
+    const messageId=await uploadMessageFiles(e,v,"",null,[],files,true);
+    if(!messageId)throw new WorkspaceActionError("Upload status is uncertain. Refresh before retrying.");
+    return {messageId,error:null};
+  } catch(error) { return {messageId:null,error:actionErrorMessage(error)}; }
 }
 async function extractUploadedFile(path: string, ownerId: string, mime: string, bytes: Uint8Array) {
   const admin = adminDatabase();
@@ -783,13 +826,16 @@ export async function addMeetingNote(f: FormData) {
   revalidatePath("/calendar");
 }
 export async function saveProfile(f: FormData) {
-  const { user } = await authenticated();
+  const { db, user } = await authenticated();
+  const {data:profile,error}=await db.from("profiles").select("active_role,public_bio,skills").eq("id",user.id).single();
+  if(error || !profile)throw new WorkspaceActionError("Account profile unavailable");
+  const professional=profile.active_role==="professional";
   const hourlyRate = f.get("hourlyRate") ? z.number().int().min(1).max(100000000).parse(parseUsd(f.get("hourlyRate"))) : null;
   await command("update_profile", {
     n: z.string().trim().min(1).max(100).parse(f.get("displayName")),
     company: z.string().max(160).parse(f.get("company")),
-    bio: z.string().max(3000).parse(f.get("bio")),
-    skills: z
+    bio: professional ? z.string().max(3000).parse(f.get("bio")) : profile.public_bio,
+    skills: professional ? z
       .array(z.string().min(1).max(80))
       .max(20)
       .parse(
@@ -800,10 +846,10 @@ export async function saveProfile(f: FormData) {
           .split("\n")
           .map((s) => s.trim())
           .filter(Boolean),
-      ),
-    is_public: f.get("isPublic") === "yes",
+      ) : profile.skills,
+    is_public: true,
   });
-  if (f.has("hourlyRate")) await command("set_hourly_rate", {
+  if (professional && f.has("hourlyRate")) await command("set_hourly_rate", {
     cents: hourlyRate,
   });
   revalidatePath("/profile");
@@ -916,10 +962,13 @@ export async function workspaceFormAction(
     partial: resolvePartial,
     "credit-refund": requestCreditRefund,
     create: createEngagement,
+    "archive-engagement": archiveEngagement,
+    "allocate-engagement-tokens": allocateEngagementTokens,
     "contract-propose": proposeContract,
     "contract-approve": approveContract,
     "scope-monitor": setScopeMonitor,
     "conversation-review": reviewConversation,
+    "retry-conversation-check": retryConversationCheck,
     "conversation-finding": markConversationFinding,
     message: postMessage,
     share: shareContent,

@@ -40,6 +40,7 @@ export function CreditView({
   purchases,
   userId,
   topupAmounts,
+  cancelled = false,
 }: {
   id: string;
   visibility: string;
@@ -49,6 +50,7 @@ export function CreditView({
   purchases: Purchase[];
   userId: string;
   topupAmounts: number[];
+  cancelled?: boolean;
 }) {
   return (
     <div className="stack">
@@ -85,7 +87,8 @@ export function CreditView({
           {formatTokens(summary.promotionalAvailableNano)} · Available purchased
           tokens: {formatTokens(summary.purchasedAvailableNano)}
         </p>
-        {BigInt(summary.availableNano) < 10n * TOKEN_ATOMS && (
+        {cancelled && <p className="notice text-sm mt-4">Unused promotional tokens return to {visibility === "shared" ? "the engagement creator’s account" : "your account"}. Tokens still reserved for a request return when that reservation is released.</p>}
+        {!cancelled && BigInt(summary.availableNano) < 10n * TOKEN_ATOMS && (
           <p className="notice text-sm mt-4">
             Tokens are low. Messages, files, approvals and existing records
             remain usable.
@@ -107,8 +110,7 @@ export function CreditView({
           </div>
           <p className="muted text-xs mt-4">
             The signup grant funds only the shared agent. Private use needs a
-            separate admin allocation during the hackathon. Promotional
-            tokens are non-transferable and have no cash value.
+            separate admin allocation during the hackathon. On cancellation, unused promotional tokens return to the engagement creator’s account (shared) or the participant’s account (private). Reserved tokens return when released. Spent tokens are not returned, and promotional tokens have no cash value.
           </p>
         </div>
       </div>

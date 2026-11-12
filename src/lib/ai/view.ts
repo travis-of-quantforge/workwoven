@@ -7,7 +7,7 @@ export async function agentView(db: SupabaseClient, e: string, v: string) {
     db.rpc("credit_summary", { e, v }),
     db
       .from("agent_runs")
-      .select("id,status,result,created_at,actor_id,output_message_id")
+      .select("id,status,result,created_at,actor_id,output_message_id,question_message_id,failure_code")
       .eq("engagement_id", e)
       .eq("visibility", v)
       .order("created_at", { ascending: false })

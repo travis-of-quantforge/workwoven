@@ -16,7 +16,13 @@ export function activeMilestoneId(
 }
 export const milestoneSuggestionSchema = z.object({
   description: z.string().trim().min(1).max(5000),
+  acceptanceCriteria: z.string().trim().max(5000).nullable(),
+  responsibilities: z.string().trim().max(5000).nullable(),
 });
+
+export function cleanMilestoneText(text:string) {
+  return text.replace(/\[Sources?:[^\]]*\]/gi, "").trim();
+}
 export const milestoneSchema = z.object({
   key: z.uuid(),
   title: z.string().trim().min(1).max(200),

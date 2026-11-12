@@ -29,9 +29,9 @@ export default async function ProfilePage() {
       </section>
       <section className="panel">
         <p className="muted mb-5">
-          One account can work as a client or professional. Your name, description and skills become public only when you enable the public profile. Your hourly rate is shared with engagement counterparties.
-          Email, discussions, files, prices and private assistant activity stay
-          private.
+          Your profile, published feedback and eligible activity facts are public.
+          Email, discussions, files, engagement prices and private assistant activity stay private.
+          {p?.active_role === "professional" && " Your hourly rate is shared with engagement counterparties."}
         </p>
         <ActionForm actionName="profile" className="stack">
           <label htmlFor="display-name">Display name</label>
@@ -43,7 +43,7 @@ export default async function ProfilePage() {
             required
           />
           <label htmlFor="company">
-            Professional or company identity (optional)
+            Company identity (optional)
           </label>
           <input
             id="company"
@@ -51,9 +51,10 @@ export default async function ProfilePage() {
             defaultValue={p?.company || ""}
             maxLength={160}
           />
+          {p?.active_role === "professional" && <>
           <label htmlFor="hourly-rate">Professional hourly rate (USD)</label>
           <input id="hourly-rate" name="hourlyRate" type="number" min="0.01" max="1000000" step="0.01" defaultValue={p?.hourly_rate_cents ? (p.hourly_rate_cents / 100).toFixed(2) : ""} />
-          <p className="muted text-xs">Shared with your engagement counterpart to help estimate milestones. Each milestone price still needs both parties’ approval.</p>
+          <p className="muted text-xs">Shared with your engagement counterpart. Each milestone price needs both parties’ approval.</p>
           <label htmlFor="bio">Public description</label>
           <textarea
             id="bio"
@@ -70,21 +71,10 @@ export default async function ProfilePage() {
             defaultValue={p?.skills?.join("\n") || ""}
             maxLength={2000}
           />
-          <label className="mention-option">
-            <input
-              type="checkbox"
-              name="isPublic"
-              value="yes"
-              defaultChecked={p?.is_public || false}
-            />
-            <span>
-              Make my profile, published feedback and eligible activity facts
-              public
-            </span>
-          </label>
-          <Button>Save profile and visibility</Button>
+          </>}
+          <Button>Save profile</Button>
         </ActionForm>
-        {p?.is_public && (
+        {(
           <Link
             className="underline block mt-5"
             href={`/people/${auth.user.id}`}
@@ -95,8 +85,7 @@ export default async function ProfilePage() {
       </section>
       <p className="notice mt-5 text-sm">
         Published feedback is frozen and cannot be removed by its subject. You
-        can reply or report a policy issue. Turning your profile off hides the
-        public page; feedback remains available to engagement participants.
+        can reply or report a policy issue.
       </p>
     </main>
   );

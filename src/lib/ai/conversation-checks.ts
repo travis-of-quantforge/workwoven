@@ -52,6 +52,7 @@ export type SharedReviewSource = {
   engagementId: string;
   visibility: string;
   date?: string;
+  role?: string | null;
 };
 
 // Both initial evidence and resolution evidence must come from the authorised
@@ -92,15 +93,15 @@ export function validateConversationReview(
         throw new Error("Review was not requested");
       if (!finding.reminderReason) throw new Error("Reminder reason required");
       if (finding.reminderReason === "skipped") {
-        const question = sources.find((s) => s.ref === finding.questionRef);
-        if (
-          !question?.date ||
-          sources.filter(
-            (s) =>
-              s.ref.startsWith("message:") && s.date && s.date > question.date!,
-          ).length < policy.threshold
-        )
+        const question = [...allowed.values()].find((s) => s.ref === finding.questionRef);
+        const later = [...allowed.values()].filter((s) => s.ref.startsWith("message:") && s.date && question?.date && s.date > question.date);
+        if (!question?.date || later.length < policy.threshold)
           throw new Error("Question reminder is premature");
+        const respondentTurn = !!question.role && later.some((s) =>
+          !!s.role && s.role !== question.role &&
+          (!finding.respondent || finding.respondent === "both" || s.role === finding.respondent));
+        if (!respondentTurn)
+          throw new Error("Skipped question needs a later respondent turn");
       }
       if (
         ["blocker", "imminent_decision"].includes(finding.reminderReason) &&

@@ -10,6 +10,7 @@ const e = "engagement",
 const sources = [
   {
     ref: "message:one",
+    role: "client",
     version: "1",
     body: "Make it easy to update.",
     engagementId: e,
@@ -18,6 +19,7 @@ const sources = [
   },
   {
     ref: "message:two",
+    role: "professional",
     version: "1",
     body: "I will edit content myself.",
     engagementId: e,
@@ -147,6 +149,7 @@ describe("shared conversation review validation", () => {
       categories: ["unanswered_question"],
       questionRef: "message:one",
       reminderReason: "skipped",
+      respondent: "professional",
     };
     const policy = { complete: true, requested: false, threshold: 5 };
     expect(() =>
@@ -220,4 +223,55 @@ describe("shared conversation review validation", () => {
     for (const value of ["0", "-1", "five", "1.5", "101"])
       expect(() => skippedQuestionThreshold(value)).toThrow();
   });
+});
+it("retains timestamped prior assessments as advisory continuity within the existing budget",()=>{
+ const prior={id:"previous",messageId:"message",assessedAt:"2026-11-12T15:00:00Z",status:"checked",summary:"We already asked who supplies images."};
+ const input=reviewInput({sources:[],findings:[],complete:true,requested:false,priorAssessments:[prior]});
+ expect(input.priorAssessments).toEqual([prior]);
+ expect(Buffer.byteLength(JSON.stringify(input))).toBeLessThan(16000);
+});
+
+it("retains client file provenance and gives reviewers the briefing relationship context",async()=>{
+ const {conversationInstructions}=await import("../src/lib/ai/conversation-context");
+ const input=reviewInput({sources:[
+  {ref:"message:goals",version:"1",body:"Can you build this website?",state:"discussed",role:"client",date:"2026-11-12T10:00:00Z"},
+  {ref:"attachment:brief",version:"hash",body:"A brochure website with five pages.",state:"extracted_text",uploaderRole:"client",sourceMessageRef:"message:goals"},
+  {ref:"attachment:design",version:"hash",body:"Use teal and navy.",state:"extracted_text",uploaderRole:"client",sourceMessageRef:"message:goals"},
+ ],findings:[],complete:true,requested:false});
+ expect(input.sources.find(s=>s.ref==="attachment:brief")).toMatchObject({uploaderRole:"client",sourceMessageRef:"message:goals"});
+ expect(conversationInstructions).toContain("A client brief is NOT expected to confirm");
+ expect(conversationInstructions).toContain("one ongoing briefing turn");
+ expect(conversationInstructions).toContain("Prior AI assessments can be mistaken");
+ expect(validateConversationReview({summary:"The client has supplied the initial brief; an ordinary professional response is pending.",coverage:"complete",findings:[]},e,input.sources.map(s=>({...s,engagementId:e,visibility:"shared"})),new Set()).findings).toEqual([]);
+});
+
+it("does not treat the client's own follow-up briefing messages as a skipped professional response",()=>{
+ const question={...sources[0],body:"Can you meet these requirements?",role:"client"};
+ const later=Array.from({length:5},(_,i)=>({...sources[1],ref:`message:client-file${i}`,role:"client",body:"Here is the next part of my brief."}));
+ const pending={...issue,categories:["unanswered_question"],questionRef:question.ref,respondent:"professional",reminderReason:"skipped",references:[{ref:question.ref,version:"1",quote:question.body}]};
+ const policy={complete:true,requested:false,threshold:5};
+ expect(()=>validateConversationReview({...review,findings:[pending]},e,[question,...later],new Set(),policy)).toThrow("respondent turn");
+ expect(()=>validateConversationReview({...review,findings:[{...pending,respondent:"client"}]},e,[question,...later],new Set(),policy)).toThrow("respondent turn");
+ const respondent={...sources[1],ref:"message:professional-turn",role:"professional",body:"Let us commit to the delivery date now."};
+ expect(validateConversationReview({...review,findings:[pending]},e,[question,...later,respondent],new Set(),policy).findings).toHaveLength(1);
+ expect(validateConversationReview({...review,findings:[{...pending,actionable:false,reminderReason:null}]},e,[question,...later],new Set(),policy).findings[0].actionable).toBe(false);
+});
+
+it("can flag cross-document implementation ambiguity before any professional response or accepted agreement",async()=>{
+ const {northstarDesign,northstarBrief}=await import("./fixtures/northstar-brief");
+ const {conversationInstructions}=await import("../src/lib/ai/conversation-context");
+ const {assessmentPresentation}=await import("../src/lib/assessment-presentation");
+ const supplied=[{ref:"attachment:design",version:"design-hash",body:northstarDesign,state:"extracted_text",uploaderRole:"client" as const,sourceMessageRef:"message:upload"},
+ {ref:"attachment:brief",version:"brief-hash",body:northstarBrief,state:"extracted_text",uploaderRole:"client" as const,sourceMessageRef:"message:upload"}];
+ const input=reviewInput({sources:supplied,findings:[],complete:true,requested:false});
+ expect(input.sources.map(s=>s.body)).toEqual(expect.arrayContaining([northstarDesign,northstarBrief]));
+ expect(conversationInstructions).toContain("ordinary-waiting rule applies ONLY");
+ expect(conversationInstructions).toContain("even during initial briefing");
+ const finding={...issue,categories:["ambiguity"],subject:"Consultation button destination",explanation:"The action label leaves the destination unclear; the functional brief excludes online booking. This does not establish that a booking feature is required.",nextStep:"Should the button link to Contact only, or do something else?",references:[{ref:"attachment:design",version:"design-hash",quote:"Primary button: Book a consultation."},{ref:"attachment:brief",version:"brief-hash",quote:"No customer accounts, online appointment booking, payment collection, blog or ecommerce in this release."}]};
+ const result=validateConversationReview({summary:"Clarify the button's behaviour.",coverage:"complete",findings:[finding]},e,input.sources.map(s=>({...s,engagementId:e,visibility:"shared"})),new Set(),{complete:true,requested:false,threshold:5});
+ expect(result.findings).toHaveLength(1);
+ expect(assessmentPresentation({status:"flagged",result:{review:result}}).className).toContain("amber");
+ const answer={ref:"message:clarification",version:"1",body:"The button links to Contact only, with no booking calendar.",engagementId:e,visibility:"shared",role:"client"};
+ const settled={...finding,existingId:f,actionable:false,status:"resolved",resolutionReferences:[{ref:answer.ref,version:answer.version,quote:answer.body}]};
+ expect(validateConversationReview({summary:"The client clarified contact-page navigation.",coverage:"complete",findings:[settled]},e,[...input.sources.map(s=>({...s,engagementId:e,visibility:"shared"})),answer],new Set([f])).findings[0].status).toBe("resolved");
 });

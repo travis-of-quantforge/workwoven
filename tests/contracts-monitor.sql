@@ -67,7 +67,7 @@ select public.finish_message_assessment(:'job','{}'); -- Replay must not publish
 reset role;
 do $$begin
  if(select charge_nano from public.message_assessments where id=current_setting('test.monitor_job')::uuid)<>current_setting('test.monitor_cost')::bigint*2 then raise exception 'Monitoring markup incorrect';end if;
- if(select count(*) from public.messages where reply_to=current_setting('test.monitor_source')::uuid and kind='agent' and channel='discussion')<>1 then raise exception 'Duplicate or missing shared warning';end if;
+ if(select count(*) from public.messages where reply_to=current_setting('test.monitor_source')::uuid and kind='agent' and channel='discussion')<>0 then raise exception 'Standalone legacy warning';end if;
  if exists(select 1 from public.message_assessments a join public.messages m on m.id=a.message_id where m.kind='agent') then raise exception 'Monitoring recursively invoked itself';end if;
  if exists(select 1 from public.agent_accounts where engagement_id=current_setting('test.monitor_e')::uuid and visibility<>'shared' and (available_nano<>0 or reserved_nano<>0)) then raise exception 'Private credits touched';end if;
 end $$;
@@ -81,8 +81,8 @@ update public.message_assessments set review_version=0;
 select public.claim_message_assessment(:'reply_job',:'price',1000000) as reply_op \gset
 select public.record_usage(:'reply_op','monitor-response-reply',:'price',100,0,20);
 select public.finish_message_assessment(:'reply_job',jsonb_build_object('isRequest',true,'verdict','potential_conflict','summary','Email remains excluded.','issues',jsonb_build_array(jsonb_build_object('messageQuote','scheduled email reports','termRef','contract:'||:'v','termQuote','Scheduled emails are excluded.','explanation','This is excluded from the accepted work.'))));
-select set_config('test.monitor_reply_job',:'reply_job',false);
-do $$begin if not exists(select 1 from public.message_assessments j join public.messages m on m.id=j.notice_message_id where j.id=current_setting('test.monitor_reply_job')::uuid and m.reply_to=current_setting('test.monitor_source')::uuid) then raise exception 'Thread reply warning hidden by nesting';end if;end $$;
+select set_config('test.monitor_reply_job',:'reply_job',false),set_config('test.monitor_reply_source',:'reply_source',false);
+do $$begin if not exists(select 1 from public.message_assessments j where j.id=current_setting('test.monitor_reply_job')::uuid and j.message_id=current_setting('test.monitor_reply_source')::uuid and j.status='flagged' and j.notice_message_id is null) then raise exception 'Thread assessment not attached without a duplicate post';end if;end $$;
 set role authenticated;
 select set_config('request.jwt.claim.sub','95000000-0000-4000-8000-000000000002',false);
 select public.post_discussion_message(:'e','shared','Please add email reports after all.') as stale_source \gset

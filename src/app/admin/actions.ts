@@ -60,8 +60,8 @@ export async function adjustDemoCredits(
     if (atoms < TOKEN_ATOMS / 10n || atoms > 10000n * TOKEN_ATOMS)
       throw new Error("Enter 0.1 to 10,000 tokens.");
     const delta = atoms * (direction === "add" ? 1n : -1n);
-    const { error } = await adminDatabase().rpc("admin_adjust_credits", {
-      a: account,
+    const { error } = await adminDatabase().rpc(form.get("target")==="wallet" ? "admin_adjust_account_tokens" : "admin_adjust_credits", {
+      ...(form.get("target")==="wallet" ? {subject:account} : {a:account}),
       actor: user.id,
       k: key,
       delta: delta.toString(),
@@ -69,6 +69,7 @@ export async function adjustDemoCredits(
     });
     if (error) throw new Error(error.message);
     revalidatePath("/admin");
+    revalidatePath("/");
     return { error: "", success: true };
   } catch (error) {
     return {
@@ -76,4 +77,13 @@ export async function adjustDemoCredits(
       success: false,
     };
   }
+}
+
+export async function setSignupTokens(_previous:{error:string;success:boolean},form:FormData) {
+ const {user}=await authenticated();if(!isWorkspaceAdmin(user)) throw new Error("Forbidden");
+ try {
+  const amount=parseTokens(form.get("amount"));if(amount<0n || amount>10000n*TOKEN_ATOMS)throw new Error("Enter 0 to 10,000 tokens.");
+  const {error}=await adminDatabase().rpc("admin_set_signup_tokens",{actor:user.id,k:z.uuid().parse(form.get("key")),amount:amount.toString()});
+  if(error)throw new Error(error.message);revalidatePath("/admin");revalidatePath("/login");return {error:"",success:true};
+ } catch(error){return {error:error instanceof Error?error.message:"Setting could not be saved.",success:false};}
 }

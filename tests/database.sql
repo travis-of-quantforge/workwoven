@@ -13,7 +13,7 @@ select set_config('test.engagement',:'engagement',false);
 select set_config('test.pending',:'pending',false);
 do $$ begin
  if (select count(*) from public.starter_grants)<>1 then raise exception 'Duplicate grant'; end if;
- if (select funding from public.engagements where id=current_setting('test.pending')::uuid)<>'pending' then raise exception 'Unfunded activation'; end if;
+ if (select funding from public.engagements where id=current_setting('test.pending')::uuid)<>'funded' then raise exception 'Second engagement allocation missing'; end if;
  if (select available_nano from public.agent_accounts where engagement_id=current_setting('test.engagement')::uuid and visibility='shared')<>5000000000 then raise exception 'Missing grant'; end if;
 end $$;
 select public.send_message(:'engagement','client','PRIVATE SECRET');

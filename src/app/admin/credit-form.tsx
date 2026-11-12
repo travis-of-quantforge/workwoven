@@ -7,9 +7,11 @@ import { Button } from "@/components/ui/button";
 export function CreditForm({
   accountId,
   operationKey,
+  wallet = false,
 }: {
   accountId: string;
   operationKey: string;
+  wallet?: boolean;
 }) {
   const [state, action, pending] = useActionState(adjustDemoCredits, {
     error: "",
@@ -21,6 +23,7 @@ export function CreditForm({
       className="mt-3 flex flex-wrap items-end gap-2"
       aria-busy={pending}
     >
+      <input type="hidden" name="target" value={wallet ? "wallet" : "agent"} />
       <input type="hidden" name="account" value={accountId} />
       <input type="hidden" name="key" value={operationKey} />
       <label className="text-xs">

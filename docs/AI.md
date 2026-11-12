@@ -4,6 +4,18 @@ Three configurations live inside the same Next.js deployment. Chat, drafting and
 
 Agent questions and published replies use the `agent` message channel and appear inside the appropriate agent-chat panel, including milestone drafting. The main Discussion and engagement-card preview query only the `discussion` channel. A trigger classifies agent-run message references for new/retained responses; migration 27 classifies existing linked exchanges without rewriting their bodies or IDs. Visibility/RLS and retrieval permissions are unchanged; evidence links to agent messages open the scoped agent chat. AI-authored output uses the shared dark-blue text style across chat, summaries, drafting and administrative views.
 
+## Current status on historical assessments
+
+Per-message cards project current finding status onto the original review using stable finding IDs/issue keys. Later review resolutions and participant resolve/dismiss actions clear old warnings; partial resolution and reopened issues remain warnings. Incomplete coverage stays explicit, and missing current records do not imply success. Original results/timestamps/billing receipts remain immutable and can be expanded as history. Existing realtime finding changes refresh the cards; this display work never requests another model call. Legacy checks without linked lifecycle records retain their original status until a normal review supplies current evidence.
+
+## Agent chat uploads and retrieval
+
+Project/private chat composers accept up to 10 UTF-8 TXT/CSV files (20 MB total), including file-only requests. They reuse validated upload registration, atomic confirmation and extraction; files are anchored to a human message in the agent channel. PDF/image reading is not implemented. Uploads stay within the selected shared/own-private visibility, and pending/unreadable files never become invented content.
+
+`agent_chat_context` supplies bounded recent discussion and agent history, up to 30 file excerpts (newly attached files first), and up to 30 accepted/proposed terms and provider payment/refund records, alongside the existing authorised keyword search and exact message/assessment lookup. All returned evidence is untrusted; no private source is available to the shared project agent. Older context can be found by search/reference, but chat does not claim exhaustive history coverage.
+
+Milestone generation returns separate description, acceptance criteria and client responsibilities; the proposal form populates each and renders citations outside the editable prose. Null fields require clarification rather than fabricated obligations. Prices/dates and mutual approval remain human controls. Historical description-only results are supported when reopening drafts.
+
 ## Tool inventory and access
 
 ### Automatic shared scope/contract assessment
@@ -54,7 +66,7 @@ USD nanodollars are integers. At the fixed launch conversion, $1 = 10 Workspace 
 - Provider receipts record known expenses even for failed requests. Uncertain response IDs/usage are marked separately; no estimate is silently charged. Reconcile provider billing operationally. A failure while finalisation status is uncertain tells the user to refresh before retrying rather than promising a charge outcome that has not been confirmed.
 - A service-authorised correction reverses a settled charge once, to its original credit sources, retaining the historical charge and receipt. The model cannot issue a correction.
 
-A $5 promotional grant is atomic on a verified account's first engagement creation. Joining a project does not consume eligibility. Private balances start at zero. Shared usage/receipts are shared; private balances, receipts and detailed usage have account-scoped RLS and do not enter shared notifications or summaries. A service-only aggregate promotional-spend report supports monitoring without exposing individual private use.
+Accounts receive the admin-configured free signup allowance (default 110 tokens); existing accounts received a one-time 110-token grant. Creating an engagement requires and atomically allocates 50 personal tokens to its shared agent. Changing the signup setting affects future signups only; zero disables it. Joining a project does not debit a wallet. Private balances start at zero. Shared usage/receipts are shared; private balances, receipts and detailed usage have account-scoped RLS and do not enter shared notifications or summaries. A service-only aggregate promotional-spend report supports monitoring without exposing individual private use.
 
 Credit purchases, supported top-up amounts and refund holds are implemented as transactional records, not working checkout. PayPal verification/capture/webhook wiring is deferred until after the hackathon. A verified admin on the server-only `ADMIN_EMAILS` allowlist can add or remove available promotional demo credits through `/admin`; this creates audit/ledger records, never a fake purchase or provider receipt. Only service-only verified purchase settlement may mark real purchased credits. The platform plans to earn from prepaid AI credits used at 2× attributable provider cost. Direct-to-professional payments carry no Workspace commission. Unused whole-cent purchased credits can be held for a manual refund request, completed only after a verified provider refund. Promotional credits have no cash value; purchased credits have no invented expiration. See ARCHITECTURE.md.
 

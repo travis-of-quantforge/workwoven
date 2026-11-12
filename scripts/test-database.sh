@@ -14,10 +14,15 @@ node scripts/migrate.mjs --apply
 node scripts/migrate.mjs --apply
 node scripts/migrate.mjs --check
 psql -v ON_ERROR_STOP=1 -f tests/database.sql >/dev/null
+psql -v ON_ERROR_STOP=1 -f tests/account-tokens.sql >/dev/null
+psql -v ON_ERROR_STOP=1 -f tests/engagement-archives.sql >/dev/null
+psql -v ON_ERROR_STOP=1 -f tests/public-profiles.sql >/dev/null
 psql -v ON_ERROR_STOP=1 -f tests/account-context.sql >/dev/null
 psql -v ON_ERROR_STOP=1 -f tests/credits.sql >/dev/null
 psql -v ON_ERROR_STOP=1 -f tests/discussion.sql >/dev/null
 psql -v ON_ERROR_STOP=1 -f tests/uploads.sql >/dev/null
+psql -v ON_ERROR_STOP=1 -f tests/multiple-message-attachments.sql >/dev/null
+psql -v ON_ERROR_STOP=1 -f tests/agent-attachments.sql >/dev/null
 psql -v ON_ERROR_STOP=1 -f tests/credit-accounting.sql >/dev/null
 psql -v ON_ERROR_STOP=1 -f tests/agents.sql >/dev/null
 psql -v ON_ERROR_STOP=1 -f tests/credit-source-concurrency.sql >/dev/null
@@ -33,7 +38,15 @@ psql -v ON_ERROR_STOP=1 -f tests/payment-cancellation.sql >/dev/null
 psql -v ON_ERROR_STOP=1 -f tests/contracts-monitor.sql >/dev/null
 psql -v ON_ERROR_STOP=1 -f tests/milestone-file-context.sql >/dev/null
 psql -v ON_ERROR_STOP=1 -f tests/conversation-reviews.sql >/dev/null
+psql -v ON_ERROR_STOP=1 -f tests/retry-conversation-check.sql >/dev/null
+psql -v ON_ERROR_STOP=1 -f tests/cached-review-result.sql >/dev/null
+psql -v ON_ERROR_STOP=1 -f tests/message-assessment-evidence.sql >/dev/null
+psql -v ON_ERROR_STOP=1 -f tests/message-bound-assessments.sql >/dev/null
+psql -v ON_ERROR_STOP=1 -f tests/prior-assessment-context.sql >/dev/null
 psql -v ON_ERROR_STOP=1 -f tests/delivery-upload.sql >/dev/null
+psql -v ON_ERROR_STOP=1 -f tests/closed-engagement-lock.sql >/dev/null
+psql -v ON_ERROR_STOP=1 -f tests/password-reset-throttle.sql >/dev/null
+psql -v ON_ERROR_STOP=1 -f tests/cancelled-token-returns.sql >/dev/null
 python3 tests/concurrency.py
 # Apply the new migration over real multi-task legacy records in a separate
 # disposable database, not just an empty schema.
@@ -50,3 +63,27 @@ PGDATABASE=milestone_import psql -1 -v ON_ERROR_STOP=1 -f supabase/migrations/20
 PGDATABASE=milestone_import psql -1 -v ON_ERROR_STOP=1 -f supabase/migrations/202611100031_milestone_approvals.sql >/dev/null
 PGDATABASE=milestone_import psql -v ON_ERROR_STOP=1 -f tests/milestone-import-after.sql >/dev/null
 printf 'Database permissions, approval, credit and concurrency assertions passed.\n'
+
+# Verify the one-time allowance upgrade preserves real legacy allocations.
+createdb token_upgrade
+PGDATABASE=token_upgrade psql -v ON_ERROR_STOP=1 < <(sed '/^create role /d' tests/database-bootstrap.sql) >/dev/null
+for migration in supabase/migrations/*.sql; do
+ if [[ "$migration" < "supabase/migrations/202611120056_" ]]; then
+  PGDATABASE=token_upgrade psql -1 -v ON_ERROR_STOP=1 -f "$migration" >/dev/null
+ fi
+done
+PGDATABASE=token_upgrade psql -v ON_ERROR_STOP=1 -f tests/account-tokens-upgrade-before.sql >/dev/null
+PGDATABASE=token_upgrade psql -1 -v ON_ERROR_STOP=1 -f supabase/migrations/202611120056_account_tokens.sql >/dev/null
+PGDATABASE=token_upgrade psql -v ON_ERROR_STOP=1 -f tests/account-tokens-upgrade-after.sql >/dev/null
+
+# Existing cancelled balances are repaired without touching active engagements.
+createdb cancellation_upgrade
+PGDATABASE=cancellation_upgrade psql -v ON_ERROR_STOP=1 < <(sed '/^create role /d' tests/database-bootstrap.sql) >/dev/null
+for migration in supabase/migrations/*.sql; do
+  if [[ "$migration" < "supabase/migrations/202611120071_" ]]; then
+    PGDATABASE=cancellation_upgrade psql -1 -v ON_ERROR_STOP=1 -f "$migration" >/dev/null
+  fi
+done
+PGDATABASE=cancellation_upgrade psql -v ON_ERROR_STOP=1 -f tests/cancelled-token-upgrade-before.sql >/dev/null
+PGDATABASE=cancellation_upgrade psql -1 -v ON_ERROR_STOP=1 -f supabase/migrations/202611120071_cancelled_token_returns.sql >/dev/null
+PGDATABASE=cancellation_upgrade psql -v ON_ERROR_STOP=1 -f tests/cancelled-token-upgrade-after.sql >/dev/null

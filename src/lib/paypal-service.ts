@@ -71,40 +71,39 @@ export async function refreshSeller(userId: string, api = sandboxProvider()) {
     if (saved.error) throw new Error("Seller verification could not be saved");
     return result;
   } catch (error) {
-    await admin
-      .from("paypal_sellers")
-      .update({ payments_enabled: false, refunds_enabled: false })
-      .eq("user_id", userId);
-    if (error instanceof PayPalError)
+    // A failed lookup is not evidence that a verified merchant disconnected.
+    // Only a successful provider response may change the cached capabilities.
+    if (error instanceof PayPalError) {
+      if (error.code === "SELLER_ONBOARDING_PENDING")
+        throw new WorkspaceActionError("PayPal seller setup is not complete. Finish onboarding in the sandbox and refresh the connection.");
       throw new WorkspaceActionError(error.message);
+    }
     throw new WorkspaceActionError(
-      "PayPal seller setup is not complete. Finish onboarding in the sandbox and refresh the connection.",
+      "PayPal connection could not be verified right now. Your saved connection has not been changed. Please retry.",
     );
   }
 }
 export async function onboardingLink(userId: string, engagementId: string) {
-  const api = sandboxProvider(),
-    admin = adminDatabase();
-  const saved = await admin
-    .from("paypal_sellers")
-    .upsert(
-      { user_id: userId },
-      { onConflict: "user_id", ignoreDuplicates: true },
-    );
-  if (saved.error) throw new Error("Seller setup unavailable");
-  const seller = await admin
-    .from("paypal_sellers")
-    .select("tracking_id")
-    .eq("user_id", userId)
-    .single();
-  if (seller.error) throw new Error("Seller setup unavailable");
-  const url = await api.onboard(seller.data.tracking_id, engagementId);
-  const updated = await admin
-    .from("paypal_sellers")
-    .update({ onboarding_url: url })
-    .eq("user_id", userId);
-  if (updated.error) throw new Error("Seller setup unavailable");
-  return url;
+  let stage="configuration";
+  try {
+    const api=sandboxProvider(),admin=adminDatabase();
+    stage="seller_registration";
+    const saved=await admin.from("paypal_sellers").upsert({user_id:userId},{onConflict:"user_id",ignoreDuplicates:true});
+    if(saved.error)throw new WorkspaceActionError("PayPal seller registration could not be saved. Please retry.");
+    stage="seller_lookup";
+    const seller=await admin.from("paypal_sellers").select("tracking_id").eq("user_id",userId).single();
+    if(seller.error)throw new WorkspaceActionError("PayPal seller registration could not be loaded. Please retry.");
+    stage="paypal_referral";
+    const url=await api.onboard(seller.data.tracking_id,engagementId);
+    stage="save_referral";
+    const updated=await admin.from("paypal_sellers").update({onboarding_url:url}).eq("user_id",userId);
+    if(updated.error)throw new WorkspaceActionError("PayPal connected to onboarding, but its link could not be saved. Please retry.");
+    return url;
+  } catch(error) {
+    // Never log credentials, referral links, user IDs or provider response bodies.
+    console.error("paypal_onboarding_failed",{stage,type:error instanceof Error?error.name:"unknown",code:error instanceof PayPalError?error.code:error instanceof Error && error.message==="Unexpected PayPal redirect"?"UNEXPECTED_REDIRECT":undefined});
+    throw error;
+  }
 }
 export async function checkoutLink(paymentId: string, origin?: string) {
   const api = sandboxProvider(origin),

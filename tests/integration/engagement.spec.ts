@@ -175,7 +175,7 @@ test("two authenticated parties: grant, invite, private isolation, threads, file
     expect((await admin.rpc("store_attachment_text", {p:privatePath,actor:client.id,body:privateBytes.toString("utf8"),hash:createHash("sha256").update(privateBytes).digest("hex"),is_complete:true})).error).toBeNull();
     await cp.reload();
     await expect(cp.getByText("PRIVATE FIXTURE: internal budget ceiling must remain confidential.",{exact:true})).toBeVisible();
-    await expect(cp.getByRole("link", {name:"Open attachment: private-planning.txt",exact:true})).toBeVisible();
+    await expect(cp.getByRole("link", {name:"Download attachment: private-planning.txt",exact:true})).toBeVisible();
     await cp.getByLabel("Message your private assistant",{exact:true}).fill("UNSENT PRIVATE AGENT question");
     await cp
       .getByRole("link", { name: "Shared workspace", exact: true })
@@ -184,7 +184,7 @@ test("two authenticated parties: grant, invite, private isolation, threads, file
       cp.getByLabel("Message", { exact: true }),
     ).toHaveValue("");
     await expect(cp.getByRole("heading", { name: "Project Agent" })).toBeHidden();
-    await cp.getByText("Chat with the project agent", { exact: true }).click();
+    await cp.getByRole("link", { name:"Project agent", exact: true }).click();
     await expect(cp.getByLabel("Your question", { exact: true })).toHaveValue(
       "",
     );
@@ -192,9 +192,9 @@ test("two authenticated parties: grant, invite, private isolation, threads, file
       cp.getByRole("button", { name: "Send", exact: true }),
     ).toBeDisabled();
     await expect(cp.getByRole("heading", { name: "Project Agent" })).toBeVisible();
-    await expect(cp.getByText("Both parties can read this interaction.")).toBeVisible();
+    await expect(cp.getByRole("note").filter({hasText:"Shared chat:"})).toBeVisible();
     await expect(cp.getByLabel("Help with")).toHaveCount(0);
-    await expect(cp.getByText("Manage this agent’s tokens")).toHaveCount(0);
+    await expect(cp.getByText("Manage this agent’s tokens")).toHaveCount(1);
     const pausedAI = await cp.request.post("/api/agents", {
       headers: { origin: "http://127.0.0.1:3200" },
       data: {},
@@ -209,6 +209,7 @@ test("two authenticated parties: grant, invite, private isolation, threads, file
       ).status(),
     ).toBe(403);
     expect((await cp.request.post("/api/maintenance")).status()).toBe(401);
+    await cp.getByRole("link",{name:"Shared workspace",exact:true}).click();
     await send(cp, "We need weekly regional revenue totals from a CSV export.");
     await cp.getByLabel("Their email").fill(professional.email);
     await cp
@@ -502,7 +503,7 @@ test("two authenticated parties: grant, invite, private isolation, threads, file
     await expect(
       cp.getByText("Here is the example revenue CSV for the dashboard.", { exact: true }),
     ).toBeVisible();
-    await expect(cp.getByRole("link", { name: "Open attachment: example-revenue.csv" })).toBeVisible();
+    await expect(cp.getByRole("link", { name: "Download attachment: example-revenue.csv" })).toBeVisible();
     checked(
       await client.db
         .from("attachments")
@@ -743,12 +744,7 @@ test("two authenticated parties: grant, invite, private isolation, threads, file
       .getByLabel("Display name", { exact: true })
       .fill("[E2E] Demonstration client");
     await cp
-      .getByLabel("Public description", { exact: true })
-      .fill(
-        "Temporary labelled browser-test fixture; not a real reputation claim.",
-      );
-    await cp
-      .getByRole("button", { name: "Save profile and visibility", exact: true })
+      .getByRole("button", { name: "Save profile", exact: true })
       .click();
     await expect(cp.getByRole("status")).toHaveText("Saved.");
     await pp.goto("/profile");
@@ -756,7 +752,7 @@ test("two authenticated parties: grant, invite, private isolation, threads, file
       .getByLabel("Display name", { exact: true })
       .fill("[E2E] Demonstration professional");
     await pp
-      .getByLabel("Professional or company identity (optional)", {
+      .getByLabel("Company identity (optional)", {
         exact: true,
       })
       .fill("[E2E] Demo consultancy");
@@ -766,13 +762,7 @@ test("two authenticated parties: grant, invite, private isolation, threads, file
         "Temporary labelled browser-test fixture. Demo feedback is excluded.",
       );
     await pp
-      .getByRole("checkbox", {
-        name: "Make my profile, published feedback and eligible activity facts public",
-        exact: true,
-      })
-      .check();
-    await pp
-      .getByRole("button", { name: "Save profile and visibility", exact: true })
+      .getByRole("button", { name: "Save profile", exact: true })
       .click();
     await expect(pp.getByRole("status")).toHaveText("Saved.");
     await cp.goto(`/workspace/${e}?tab=discussion`);

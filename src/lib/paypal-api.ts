@@ -36,10 +36,11 @@ export class PayPalError extends Error {
 }
 export class SandboxPayPal {
   private accessToken: Promise<string> | null = null;
-  constructor(
-    readonly config: SandboxConfig,
-    private fetcher: typeof fetch = fetch,
-  ) {}
+  private readonly fetcher: typeof fetch;
+  constructor(readonly config: SandboxConfig, fetcher: typeof fetch = fetch) {
+    // Native Workers fetch rejects a PayPal instance as its receiver.
+    this.fetcher = fetcher.bind(globalThis);
+  }
   private async token() {
     this.accessToken ||= (async () => {
       const response = await this.fetcher(
@@ -53,8 +54,11 @@ export class SandboxPayPal {
           body: "grant_type=client_credentials",
           signal: AbortSignal.timeout(15000),
           cache: "no-store",
+          redirect: "manual",
         },
       );
+      if (response.status >= 300 && response.status < 400)
+        throw new PayPalError(response.status, "UNEXPECTED_REDIRECT");
       const data = object(await response.json());
       if (!response.ok || typeof data.access_token !== "string")
         throw new PayPalError(response.status, "AUTHENTICATION_FAILED");
@@ -99,9 +103,11 @@ export class SandboxPayPal {
         body: body === undefined ? undefined : JSON.stringify(body),
         signal: AbortSignal.timeout(20000),
         cache: "no-store",
-        redirect: "error",
+        redirect: "manual",
       },
     );
+    if (response.status >= 300 && response.status < 400)
+      throw new PayPalError(response.status, "UNEXPECTED_REDIRECT");
     const data = object(await response.json());
     if (!response.ok)
       throw new PayPalError(
@@ -166,6 +172,8 @@ export class SandboxPayPal {
       typeof found.merchant_id === "string"
         ? found
         : object(list(found.merchant_integrations)[0]);
+    if (candidate.merchant_id === undefined)
+      throw new PayPalError(409, "SELLER_ONBOARDING_PENDING");
     const merchantId = z
       .string()
       .regex(/^[A-Z0-9]{13}$/)

@@ -1,7 +1,11 @@
 \set ON_ERROR_STOP on
 reset role;
 select set_config('test.engagement',(select id::text from public.engagements where title='Reporting dashboard' and creator_id='00000000-0000-0000-0000-000000000001'),false);
-select set_config('test.pending',(select id::text from public.engagements where title='Second project' and creator_id='00000000-0000-0000-0000-000000000001'),false);
+-- Legacy pending record: current creation correctly cannot produce this state.
+insert into public.engagements(creator_id,title,funding) values('00000000-0000-0000-0000-000000000001','Legacy pending accounting','pending') returning id as legacy_pending_accounting \gset
+insert into public.memberships values(:'legacy_pending_accounting','00000000-0000-0000-0000-000000000001','client');
+insert into public.agent_accounts(engagement_id,visibility) select :'legacy_pending_accounting',v from unnest(enum_range(null::public.visibility)) v;
+select set_config('test.pending',:'legacy_pending_accounting',false);
 select id as pricing from public.ai_pricing where model='gpt-5-mini-2025-08-07' limit 1 \gset
 select id as private_account from public.agent_accounts where visibility='client' and engagement_id=current_setting('test.engagement')::uuid \gset
 set role authenticated;

@@ -13,12 +13,15 @@ def require(query):
 uid='00000000-0000-0000-0000-000000000004'
 require(f"insert into auth.users values ('{uid}','race@example.test',now())")
 def create(i):
-    return require(f"set role authenticated; select set_config('request.jwt.claim.sub','{uid}',false); select public.create_engagement('Concurrent {i}','client');")
+    return sql(f"set role authenticated; select set_config('request.jwt.claim.sub','{uid}',false); select public.create_engagement('Concurrent {i}','client');")
 with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
-    list(executor.map(create,range(4)))
+    creation_results=list(executor.map(create,range(4)))
+assert sum(r.returncode==0 for r in creation_results)==2
+assert all(r.returncode==0 or "50 available tokens" in r.stderr for r in creation_results)
+assert require(f"select available_nano from public.account_token_wallets where user_id='{uid}'")=='1000000000'
 assert require(f"select count(*) from public.starter_grants where user_id='{uid}'")=='1'
-assert require(f"select count(*) from public.engagements where creator_id='{uid}' and funding='funded'")=='1'
-account=require(f"select a.id from public.agent_accounts a join public.engagements e on e.id=a.engagement_id where e.creator_id='{uid}' and e.funding='funded' and a.visibility='shared'")
+assert require(f"select count(*) from public.engagements where creator_id='{uid}' and funding='funded'")=='2'
+account=require(f"select a.id from public.agent_accounts a join public.engagements e on e.id=a.engagement_id where e.creator_id='{uid}' and e.funding='funded' and a.visibility='shared' order by e.created_at,e.id limit 1")
 def reserve(i):
     return sql(f"select public.reserve_usage('{account}','{uid}','20000000-0000-0000-0000-{i:012d}',1000000000)").returncode
 with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
@@ -127,3 +130,43 @@ with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
     list(executor.map(approve_contract,[uid,pro]))
 assert require(f"select accepted_version_id from public.engagement_contracts where engagement_id='{engagement}'")==contract_version
 assert require(f"select count(*) from public.contract_approvals where version_id='{contract_version}'")=='2'
+
+# A stale message waits on the parent lock and is rejected after cancellation.
+import time
+accepted=require(f"select accepted_version_id from public.engagements where id='{engagement}'")
+with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+    closing=executor.submit(sql,f"/* closed-lock-race */ begin; select set_config('request.jwt.claim.sub','{uid}',false); select id from public.engagements where id='{engagement}' for update; select pg_sleep(1); set role authenticated; select public.close_engagement('{engagement}','cancelled','{accepted}','Concurrency lock fixture ending.'); commit;")
+    for _ in range(100):
+        if require("select exists(select 1 from pg_stat_activity where query like '/* closed-lock-race */%' and wait_event='PgSleep')")=='t':
+            break
+        time.sleep(0.02)
+    else:
+        raise AssertionError('Closure fixture did not acquire its parent lock')
+    late=sql(f"set role authenticated; select set_config('request.jwt.claim.sub','{pro}',false); select public.send_message('{engagement}','shared','This must not arrive after closure')")
+    assert late.returncode!=0 and 'read-only' in late.stderr,late.stderr
+    result=closing.result()
+    assert result.returncode==0,result.stderr
+assert require(f"select count(*) from public.messages where engagement_id='{engagement}' and body='This must not arrive after closure'")=='0'
+
+# Released reservations after cancellation are credited once, even on replays.
+operations=require(f"select id from public.usage_operations where account_id='{account}' and status='reserved'").splitlines()
+def release_cancelled(op):
+    return require(f"select public.settle_usage('{op}',0,'internal_error','{{}}')")
+with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
+    list(executor.map(release_cancelled,operations+operations))
+assert require(f"select available_nano from public.account_token_wallets where user_id='{uid}'")=='6000000000'
+assert require(f"select available_nano||':'||reserved_nano from public.agent_accounts where id='{account}'")=='0:0'
+
+# A reservation cannot hold the source account while cancellation waits on it.
+other=require(f"select id from public.engagements where creator_id='{uid}' and id<>'{engagement}'")
+other_account=require(f"select id from public.agent_accounts where engagement_id='{other}' and visibility='shared'")
+with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+    closing=executor.submit(sql,f"/* cancelled-reserve-race */ begin; select set_config('request.jwt.claim.sub','{uid}',false); select id from public.engagements where id='{other}' for update; select pg_sleep(1); set role authenticated; select public.close_engagement('{other}','cancelled',null,'Reservation race fixture.'); commit;")
+    for _ in range(100):
+        if require("select exists(select 1 from pg_stat_activity where query like '/* cancelled-reserve-race */%' and wait_event='PgSleep')")=='t':break
+        time.sleep(0.02)
+    else:raise AssertionError('Cancellation did not acquire parent lock')
+    late=sql(f"select public.reserve_usage('{other_account}','{uid}','{uuid.uuid4()}',100000000)")
+    assert late.returncode!=0 and 'read-only' in late.stderr,late.stderr
+    result=closing.result();assert result.returncode==0,result.stderr
+assert require(f"select available_nano from public.account_token_wallets where user_id='{uid}'")=='11000000000'

@@ -61,7 +61,7 @@ beforeEach(() => {
 });
 it("returns validated milestone suggestions through the existing bounded, metered provider flow", async () => {
   const source: Evidence = { ref: "message:00000000-0000-4000-8000-000000000001", kind: "message", record_id: "00000000-0000-4000-8000-000000000001", version: "1", body: "Build regional dashboard from CSV", state: "discussed", source_visibility: "shared", excerpt: false };
-  const draft = { ...answer, kind: "milestones", citations: [{ ref: source.ref, version: "1", visibility: "shared" }], milestones: [{ description: "CSV dashboard with regional totals" }] };
+  const draft = { ...answer, kind: "milestones", citations: [{ ref: source.ref, version: "1", visibility: "shared" }], milestones: [{ description: "CSV dashboard with regional totals", acceptanceCriteria:"Regional totals match the supplied CSV.", responsibilities:"Supply the CSV." }] };
   provider.create.mockReset().mockResolvedValueOnce(first).mockResolvedValueOnce(streamed("completed", draft));
   const meter = vi.fn();
   const result = await generateAgentResult(price, "shared", "milestones", "Draft milestone descriptions only from discussion.", { search: async () => [source], meter, preview: () => {}, status: () => {} }, new AbortController().signal);
@@ -143,4 +143,33 @@ it("exposes only a validated usable partial as a consent offer", async () => {
   );
   expect(result.partial).toBe(true);
   expect(result.result).toEqual(answer);
+});
+it("bounds an oversized model search query rather than losing the request after the first metered response",async()=>{
+ const oversized={...first,output:[{...first.output[0],arguments:JSON.stringify({query:"brief deliverables ".repeat(40)})}]};
+ provider.create.mockReset().mockResolvedValueOnce(oversized).mockResolvedValueOnce(streamed());
+ const search=vi.fn().mockResolvedValue([]),meter=vi.fn();
+ await generateAgentResult(price,"shared","advice","Draft from the documents.",{search,meter,preview:()=>{},status:()=>{}},new AbortController().signal);
+ expect(search.mock.calls[0][0]).toHaveLength(256);expect(meter).toHaveBeenCalledTimes(2);
+});
+it("applies the client/professional relationship to chat and milestone drafting instructions",async()=>{
+ const {agentInstructions}=await import("../src/lib/ai/openai");
+ for(const visibility of ["shared","client","professional"]){
+  expect(agentInstructions(visibility,"advice")).toContain("A client brief is NOT expected to confirm");
+  expect(agentInstructions(visibility,"milestones")).toContain("Only the application's accepted agreement");
+ }
+});
+
+it("drafts acceptance criteria and responsibilities separately from citations", async()=>{
+ const source:Evidence={ref:"attachment:00000000-0000-4000-8000-000000000001",kind:"attachment",record_id:"00000000-0000-4000-8000-000000000001",version:"fixture-version",body:"Three pages. A test enquiry reaches the confirmed inbox. Show success after sending. Client supplies logo and content.",state:"extracted_text",source_visibility:"shared",excerpt:false};
+ const draft={...answer,kind:"milestones",citations:[{ref:source.ref,version:source.version,visibility:"shared"}],milestones:[{description:"Deliver three public pages. [Sources: attachment:00000000-0000-4000-8000-000000000001 vfixture-version]",acceptanceCriteria:"A test enquiry reaches the confirmed inbox; a success message appears after submission.",responsibilities:"Client supplies the final logo and page content."}]};
+ provider.create.mockReset().mockResolvedValueOnce(first).mockResolvedValueOnce(streamed("completed",draft));
+ const result=await generateAgentResult(price,"shared","milestones","Draft from our shared files.",{search:async()=>[source],meter:async()=>{},preview:()=>{},status:()=>{}},new AbortController().signal);
+ const parsed=milestoneAgentResultSchema.parse(result.result);
+ expect(parsed.milestones?.[0].description).toBe("Deliver three public pages.");
+ expect(parsed.milestones?.[0].acceptanceCriteria).toContain("confirmed inbox");
+ expect(parsed.milestones?.[0].responsibilities).toContain("logo");
+ expect(parsed.citations).toEqual(draft.citations);
+ expect(provider.create.mock.calls[1][0].instructions).toContain("specific observable tests");
+ const schemaText=JSON.stringify(provider.create.mock.calls[1][0].text.format.schema.properties.milestones);
+ for(const field of ["description","acceptanceCriteria","responsibilities"])expect(schemaText).toContain(`"${field}"`);
 });

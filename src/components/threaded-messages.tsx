@@ -1,13 +1,23 @@
 import Link from "next/link";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { ConversationFindings } from "./conversation-findings";
+import { conversationReviewSchema } from "@/lib/ai/conversation-checks";
+import {assessmentPresentation,currentAssessmentState} from "@/lib/assessment-presentation";
 import { Button } from "./ui/button";
+import { CopyMessageId } from "./copy-message-id";
+import { ActionSubmitButton } from "./action-form";
 import { ActionForm } from "./action-form";
 import type { Assessment } from "@/lib/ai/scope-monitor";
 import { EvidenceLinkHelp } from "./evidence-link-help";
 type MessageAssessment = {
+  id: string;
   message_id: string;
+  retry_message_id?: string | null;
   notice_message_id: string | null;
   status: string;
   reason: string | null;
+  created_at?: string;
+  finished_at?: string | null;
   result: (Assessment & { review?: unknown }) | null;
 };
 type Message = {
@@ -19,7 +29,8 @@ type Message = {
   reply_to: string | null;
 };
 type Member = { user_id: string; role: string };
-export function ThreadedMessages({
+export async function ThreadedMessages({
+  db,
   messages,
   engagementId,
   visibility,
@@ -29,6 +40,7 @@ export function ThreadedMessages({
   milestoneEvents = [],
   assessments = [],
 }: {
+  db: SupabaseClient;
   messages: Message[];
   engagementId: string;
   visibility: string;
@@ -43,15 +55,19 @@ export function ThreadedMessages({
   assessments?: MessageAssessment[];
   files: { id: string; name: string; source_message_id: string | null }[];
 }) {
+  const currentFindings=visibility==="shared" && assessments.length
+    ? await db.from("conversation_findings").select("id,issue_key,status,updated_at").eq("engagement_id",engagementId).limit(100)
+    : {data:[],error:null};
   const ids = new Set(messages.map((m) => m.id));
   function card(m: Message) {
     const milestoneEvent = milestoneEvents.find(
       (event) => event.message_id === m.id,
     );
-    const assessment = assessments.find((a) => a.message_id === m.id);
-    const notice = assessments.find(
-      (a) => a.notice_message_id === m.id && a.status === "flagged",
-    );
+    const assessment = assessments.find((a) => (a.retry_message_id || a.message_id) === m.id);
+    const review=conversationReviewSchema.safeParse(assessment?.result?.review);
+    const current=assessment?currentAssessmentState(assessment,currentFindings.error?[]:currentFindings.data || []):null;
+    const presentation=assessment?assessmentPresentation(current?.check || assessment):null;
+    const SummaryContainer=current?.cleared?"details":"div";
     return (
       <article
         key={m.id}
@@ -81,91 +97,38 @@ export function ThreadedMessages({
             UTC
           </time>
           <span className="inline-flex items-center gap-1">
-          <Link
-            className="muted text-xs underline"
-            href={`?tab=discussion${visibility === "shared" ? "" : "&context=private"}&message=${m.id}#message-${m.id}`}
-          >
-            Evidence link
-          </Link>
+          <CopyMessageId id={m.id} />
           <EvidenceLinkHelp />
           </span>
         </div>
-        {notice?.result && !notice.result.review ? (
-          <div className="ai-text rounded-lg border border-mint bg-mint/40 p-4">
-            <h3 className="font-semibold">Potential scope or contract issue</h3>
-            <p className="mt-2">{notice.result.summary}</p>
-            <p className="text-xs mt-2">
-              AI advice for both parties to review. No agreement has been
-              changed.
-            </p>
-            {notice.result.issues.map((issue, index) => {
-              const [kind, record] = issue.termRef.split(":");
-              const href =
-                kind === "contract"
-                  ? `/workspace/${engagementId}?tab=contract&version=${record}#contract-archive-${record}`
-                  : `/workspace/${engagementId}?tab=milestones&version=${record}`;
-              return (
-                <section
-                  key={index}
-                  className="mt-4 border-t border-blue-200 pt-3"
-                >
-                  <Link
-                    className="underline text-sm"
-                    href={`?tab=discussion&message=${notice.message_id}#message-${notice.message_id}`}
-                  >
-                    Quoted message
-                  </Link>
-                  <blockquote className="border-l-2 border-blue-400 pl-3 my-2 whitespace-pre-wrap break-words">
-                    <mark className="bg-coral/30 text-blue-900">
-                      {issue.messageQuote}
-                    </mark>
-                  </blockquote>
-                  <p className="whitespace-pre-wrap">{issue.explanation}</p>
-                  <details className="mt-2">
-                    <summary className="cursor-pointer text-sm">
-                      Accepted term cited
-                    </summary>
-                    <blockquote className="whitespace-pre-wrap border-l-2 pl-3 mt-2">
-                      {issue.termQuote}
-                    </blockquote>
-                    <Link className="underline text-sm" href={href}>
-                      View accepted{" "}
-                      {kind === "contract" ? "contract" : "milestone"} version
-                    </Link>
-                  </details>
-                </section>
-              );
-            })}
-          </div>
-        ) : (
-          <p
-            className={`whitespace-pre-wrap break-words ${m.kind === "agent" ? "ai-text" : ""}`}
-          >
-            {m.body}
-          </p>
-        )}
-        {notice?.result?.review != null && <Link className="underline text-xs ai-text" href="#conversation-checks">View evidence and current issue status</Link>}
+        <p className={`whitespace-pre-wrap break-words ${m.kind === "agent" ? "ai-text" : ""}`}>{m.body}</p>
         {assessment && (
-          <details className="mt-2 text-xs muted">
+          <details className={`mt-2 rounded-lg border p-3 text-xs ai-text ${presentation!.className}`}>
             <summary className="cursor-pointer">
-              Conversation check ·{" "}
-              {assessment.status === "checked"
-                ? assessment.result?.isRequest
-                  ? "assessed"
-                  : "no request identified"
+              <span className="font-semibold">{current?.label || presentation!.label}</span> · Conversation check ·{" "}
+              {current?.cleared ? "updated" : assessment.status === "checked"
+                ? assessment.reason === "unchanged_context" ? "already reviewed" : "complete"
                 : assessment.status}
             </summary>
-            <p className="mt-2">
-              {assessment.result?.summary ||
+            {(assessment.finished_at || assessment.created_at) && <p className="mt-2"><time dateTime={assessment.finished_at || assessment.created_at}>{assessment.finished_at?(["checked","flagged"].includes(assessment.status)?"Assessed":"Last attempt"):(["checked","flagged"].includes(assessment.status)?"Recorded":"Queued")} {new Date((assessment.finished_at || assessment.created_at)!).toLocaleString("en-GB",{timeZone:"UTC"})} UTC</time></p>}
+            {currentFindings.error && <p className="notice mt-2">Current issue status is unavailable; showing the original assessment.</p>}
+            {current?.cleared && <p className="mt-2 font-semibold">The earlier concerns have been resolved or dismissed. This does not change approved commitments.</p>}
+            {current?.updatedAt && <p className="mt-2">Issue status updated <time dateTime={current.updatedAt}>{new Date(current.updatedAt).toLocaleString("en-GB",{timeZone:"UTC"})} UTC</time></p>}
+            <SummaryContainer className="mt-2">
+              {current?.cleared && <summary className="cursor-pointer">Original assessment</summary>}
+              <p>{assessment.result?.summary ||
                 (
                   {
+                    unchanged_context: "This discussion context has already been reviewed.",
+                    coalesced: "This message was included in a later discussion review.",
+                    incomplete_coverage: "The review covered only part of the available discussion. Ask the project agent about any missing context.",
                     no_accepted_terms:
                       "No accepted contract or milestones to compare yet.",
                     paused: "Automatic checks are paused.",
                     credits_unavailable:
-                      "Shared AI tokens are unavailable. Human discussion remains usable.",
+                      "This check could not run because the project agent has no available balance.",
                     daily_budget:
-                      "The automatic daily token budget has been reached.",
+                      "The daily check budget has been reached.",
                     daily_limit:
                       "The daily automatic check limit has been reached.",
                     rate_limit:
@@ -179,9 +142,26 @@ export function ThreadedMessages({
                   } as Record<string, string>
                 )[assessment.reason || ""] ||
                 (assessment.status === "failed"
-                  ? "This check failed and was not charged. Ask the project agent for a review."
-                  : "Automatic checks use shared AI tokens and run after the message is sent.")}
-            </p>
+                  ? "This check could not finish. Retry to assess this message again."
+                  : assessment.status === "checked"
+                    ? "No actionable concerns found in the available shared discussion."
+                    : assessment.status === "queued" ? "Waiting to review this message."
+                    : assessment.status === "running" ? "Reviewing this message against the shared discussion and agreement."
+                    : assessment.status === "flagged" ? "A concern was identified. See its explanation and evidence below."
+                    : "This check did not complete. Retry when the project agent is available.")}
+              </p>
+            </SummaryContainer>
+            {review.success && review.data.findings.length>0 && <ConversationFindings db={db} id={engagementId} assessmentId={assessment.id} review={review.data} />}
+            {!review.success && assessment.result?.issues?.map((issue,index)=>{
+              if(typeof issue?.termRef!=="string")return null;
+              const [kind,record]=issue.termRef.split(":");
+              const href=kind==="contract"?`/workspace/${engagementId}?tab=contract&version=${record}`:`/workspace/${engagementId}?tab=milestones&version=${record}`;
+              return <section key={index} className="mt-3 border-t pt-3"><blockquote className="border-l-2 pl-3">{issue.messageQuote}</blockquote><p className="mt-2">{issue.explanation}</p><blockquote className="border-l-2 pl-3 mt-2">{issue.termQuote}</blockquote><Link className="underline" href={href}>View accepted {kind==="contract"?"contract":"milestone"} version</Link></section>;
+            })}
+            {["failed","skipped","stale"].includes(assessment.status) && <ActionForm actionName="retry-conversation-check" className="mt-2">
+              <input type="hidden" name="id" value={engagementId}/><input type="hidden" name="message" value={m.id}/>
+              <ActionSubmitButton variant="outline" pendingLabel="Queuing retry…">Retry check</ActionSubmitButton>
+            </ActionForm>}
           </details>
         )}
         {milestoneEvent && (
@@ -198,13 +178,13 @@ export function ThreadedMessages({
         {files
           .filter((f) => f.source_message_id === m.id)
           .map((f) => (
-            <Link
+            <a
               key={f.id}
               className="underline text-sm block mt-3"
-              href={`/workspace/${engagementId}?tab=files${visibility === "shared" ? "" : "&context=private"}#file-${f.id}`}
+              href={`/api/attachments/${f.id}/download`}
             >
-              Open attachment: {f.name}
-            </Link>
+              Download attachment: {f.name}
+            </a>
           ))}
       </article>
     );

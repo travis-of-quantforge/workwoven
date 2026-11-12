@@ -6,6 +6,12 @@ export function databaseActionError(code: string, message: string) {
       "Workspace database setup is incomplete. Apply the migrations, then retry.",
     );
   const allowed = [
+    "Automatic checks are paused",
+    "Conversation check unavailable",
+    "Message unavailable",
+    "Engagement unavailable",
+    "Only completed or cancelled engagements can be archived",
+    "You need at least 50 available tokens to create an engagement",
     "Verified account required",
     "Invalid contract draft",
     "Stale contract version; refresh before submitting",
@@ -45,6 +51,7 @@ export function databaseActionError(code: string, message: string) {
     "Meeting proposal is stale or ended",
     "Explain why this meeting time does not work",
     "Engagement is closed",
+    "This engagement has ended and is read-only",
     "Accepted agreement changed; refresh",
     "Submit scope before a milestone plan",
     "Milestone amounts exceed agreement price",

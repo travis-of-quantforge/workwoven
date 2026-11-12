@@ -1,4 +1,5 @@
 "use client";
+import { cleanMilestoneText } from "@/lib/milestones";
 import { useActionState, useRef, useState } from "react";
 import { Dialog } from "radix-ui";
 import { ZodError } from "zod";
@@ -84,7 +85,7 @@ export function MilestoneProposal({
           mode: "milestones",
           operationKey: operation.current,
           question:
-            "Create milestone descriptions from our shared discussion, goals and accepted terms. Return descriptions only, without amounts or deadlines. Flag missing information and cite evidence.",
+            "Draft detailed milestones from our shared discussion, all readable shared attachments, and accepted terms. Populate deliverables in description, testable acceptanceCriteria and client responsibilities. Preserve documented release boundaries and delivery conditions. Keep source IDs out of the editable fields; use citations separately. Do not invent requirements, amounts or deadlines. Flag unresolved details as questions.",
         }),
       });
       if (!response.ok)
@@ -130,14 +131,18 @@ export function MilestoneProposal({
         throw new Error(
           "No completed draft yet. Retry to check this operation without another charge.",
         );
-      const parsed = milestoneAgentResultSchema.parse(result);
+      // Older saved drafts contained descriptions only.
+      const legacy=result as {milestones?: {description:string;acceptanceCriteria?:string|null;responsibilities?:string|null}[]};
+      const parsed = milestoneAgentResultSchema.parse({...legacy,milestones:legacy.milestones?.map(row=>({...row,acceptanceCriteria:row.acceptanceCriteria ?? null,responsibilities:row.responsibilities ?? null})) ?? null});
       setAdvice(parsed);
       const suggestions = parsed.milestones || [];
       if (suggestions.length)
         setRows((current) =>
           suggestions.map((row) => ({
             ...empty(),
-            description: row.description,
+            description: cleanMilestoneText(row.description),
+            acceptanceCriteria: cleanMilestoneText(row.acceptanceCriteria || ""),
+            responsibilities: cleanMilestoneText(row.responsibilities || ""),
             amountUsd:
               current.find(
                 (prior) => prior.description.trim() === row.description.trim(),
@@ -150,7 +155,7 @@ export function MilestoneProposal({
         );
       setStatus(
         suggestions.length
-          ? "Descriptions drafted. Enter amounts and deadlines before proposing them."
+          ? "Milestone details drafted. Review criteria and responsibilities, then enter amounts and deadlines before proposing them."
           : "More information is needed. Review the questions below.",
       );
       operation.current = null;

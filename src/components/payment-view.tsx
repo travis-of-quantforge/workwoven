@@ -23,6 +23,8 @@ export async function PaymentView({
   checkout,
   cancelled,
   page = 0,
+  readOnly = false,
+  sellerReturn = false,
 }: {
   db: SupabaseClient;
   engagementId: string;
@@ -32,6 +34,8 @@ export async function PaymentView({
   checkout?: string;
   cancelled?: string;
   page?: number;
+  readOnly?: boolean;
+  sellerReturn?: boolean;
 }) {
   const [
     requestsResult,
@@ -190,6 +194,7 @@ export async function PaymentView({
           ))}
         </div>
         {setup && <p className="notice text-sm mt-4">{setup}</p>}
+        {role === "client" && <p className="muted text-xs mt-4">For sandbox checkout, use a personal sandbox buyer account different from the professional’s PayPal account. Your Workspace login does not switch your PayPal login.</p>}
         {role === "professional" && (
           <div className="mt-5 border-t border-slate-200 pt-4">
             <p className="text-sm">
@@ -205,13 +210,14 @@ export async function PaymentView({
               <PayPalConnect
                 engagementId={engagementId}
                 connected={!!sellerResult.data?.payments_enabled}
-                disabled={!!setup}
+                disabled={!!setup || readOnly}
+                verifyOnLoad={sellerReturn || (!!sellerResult.data?.merchant_id && !sellerResult.data.payments_enabled)}
               />
               <ActionForm actionName="paypal-verify-seller">
                 {hidden({ id: engagementId })}
                 <Button
                   variant="outline"
-                  disabled={!!setup || !sellerResult.data}
+                  disabled={!!setup || readOnly || !sellerResult.data}
                 >
                   Refresh connection
                 </Button>

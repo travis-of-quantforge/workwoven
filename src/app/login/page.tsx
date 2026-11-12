@@ -1,8 +1,10 @@
 import { login } from "@/app/actions";
+import { database } from "@/lib/supabase/server";
+import { formatTokens } from "@/lib/ai/pricing";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { configured } from "@/lib/supabase/server";
-import { activeInvitation } from "@/lib/invitations";
+import { activeInvitation, invitationHasAccount } from "@/lib/invitations";
 import { redirect } from "next/navigation";
 import { SignupProfileFields } from "@/components/signup-profile-fields";
 export default async function Login({
@@ -16,6 +18,12 @@ export default async function Login({
   const signup = !adminLogin && mode === "signup";
   const invited = invitation ? await activeInvitation(invitation) : null;
   if (invitation && !invited) redirect("/login?notice=This+invitation+is+no+longer+available.");
+  if (invited && invitation) {
+    const {data:{user}}=await (await database()).auth.getUser();
+    if(user?.email_confirmed_at && user.email?.toLowerCase()===invited.email.toLowerCase()) redirect(`/invite/${invitation}`);
+    if(signup && await invitationHasAccount(invitation)) redirect(`/login?mode=login&invitation=${invitation}`);
+  }
+  const signupAllowance = signup && configured() ? await (await database()).from("account_token_settings").select("free_signup_nano").single() : null;
   return (
     <main className="mx-auto max-w-md px-5 py-20">
       <Link href="/" className="eyebrow">
@@ -71,11 +79,9 @@ export default async function Login({
         )}
         {signup && <SignupProfileFields invitedRole={invited?.role} />}
         <Button disabled={!configured()}>{signup ? "Create account" : "Sign in"}</Button>
-        {!invitation && !adminLogin && <small className="muted">
-          Verify your email to claim your once-only 50-token shared-agent starter
-          grant on your first engagement.
-        </small>}
+        {signup && signupAllowance?.data && BigInt(signupAllowance.data.free_signup_nano)>0n && <small className="muted">New accounts receive {formatTokens(signupAllowance.data.free_signup_nano)} free. Creating an engagement allocates 50 tokens to its shared project agent.</small>}
       </form>
+      {!signup && <p className="mt-5 text-sm"><Link className="underline" href="/forgot-password">Forgot password?</Link></p>}
       {!adminLogin && <p className="muted mt-5 text-sm">
         {signup ? "Already have an account? " : "New here? "}
         <Link className="underline" href={`/login?mode=${signup ? "login" : "signup"}${invitation ? `&invitation=${invitation}` : ""}`}>

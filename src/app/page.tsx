@@ -11,8 +11,10 @@ import { configured, database } from "@/lib/supabase/server";
 import { isWorkspaceAdmin } from "@/lib/admin-access";
 import { AccountMenu } from "@/components/account-menu";
 import { Button } from "@/components/ui/button";
+import { formatTokens, TOKEN_ATOMS } from "@/lib/ai/pricing";
 import { ContractCreation } from "@/components/contract-creation";
-export default async function Home() {
+export default async function Home({searchParams}:{searchParams:Promise<{archived?:string}>}) {
+  const showArchived=(await searchParams).archived==="1";
   const db = configured() ? await database() : null;
   const user = db ? (await db.auth.getUser()).data.user : null;
   const invitations = user?.email_confirmed_at
@@ -40,9 +42,15 @@ export default async function Home() {
         .select("engagement_id,role")
         .eq("user_id", user.id)
     : { data: [] };
+  const archives = user ? await db!.from("engagement_archives").select("engagement_id").eq("user_id",user.id) : {data:[],error:null};
+  if(archives.error)throw new Error("Unable to load engagement archive.");
+  const archivedIds=new Set(archives.data?.map(row=>row.engagement_id));
   const visibleProjects = projects?.filter((p) =>
-    memberships?.some((m) => m.engagement_id === p.id && m.role === activeRole),
+    memberships?.some((m) => m.engagement_id === p.id && m.role === activeRole) && archivedIds.has(p.id)===showArchived,
   );
+  const wallet = user ? await db!.from("account_token_wallets").select("available_nano").eq("user_id",user.id).maybeSingle() : null;
+  const available = wallet?.data?.available_nano;
+  const canCreate = available != null && BigInt(available) >= 50n * TOKEN_ATOMS;
   return (
     <div className="mx-auto max-w-6xl px-6 py-8">
       <header className="flex flex-wrap gap-4 items-center justify-between border-b border-slate-200 pb-6">
@@ -109,6 +117,8 @@ export default async function Home() {
         ))}
       </section>}
       {user && <div className="space-y-7">
+        <nav aria-label="Engagement lists" className="flex gap-5 text-sm"><Link className={!showArchived?"font-semibold text-teal-800 underline":"muted"} href="/">Current engagements</Link><Link className={showArchived?"font-semibold text-teal-800 underline":"muted"} href="/?archived=1">Archived engagements</Link></nav>
+        {!showArchived && <>
         <div className="panel mx-auto w-full max-w-xl py-10">
           <div className="text-center">
             <MessageSquare className="mx-auto mb-5 text-teal-700" size={30} />
@@ -137,7 +147,9 @@ export default async function Home() {
               {activeRole === "client" ? "professional" : "client"} after creation.
             </p>
             <ContractCreation />
-            <Button>Create engagement</Button>
+            <p className="muted text-sm">{available != null ? `${formatTokens(available)} available. Creating an engagement allocates 50 tokens to its shared project agent.` : "Your account token balance could not be loaded."}</p>
+            {!canCreate && available != null && <p className="notice text-sm">You need at least 50 available tokens to create an engagement.</p>}
+            <Button disabled={!canCreate}>Create engagement</Button>
           </ActionForm>
           <div className="border-t border-slate-100 mt-6 pt-5 flex gap-2 text-xs muted">
             <ShieldCheck size={18} />
@@ -146,13 +158,12 @@ export default async function Home() {
             </span>
           </div>
         </div>
-        <section className="stack content-start">
+        </>}
+        <section aria-label={showArchived?"Archived engagements":"Current engagements"} className="stack content-start">
+          {showArchived && !visibleProjects?.length && <p className="muted">No archived engagements.</p>}
           {visibleProjects?.map((p) => (
-            <Link
-              href={`/workspace/${p.id}`}
-              key={p.id}
-              className="panel hover:border-teal-600"
-            >
+            <article key={p.id} className="panel hover:border-teal-600">
+            <Link href={`/workspace/${p.id}`} className="block">
               <div className="flex justify-between gap-4">
                 <h2>{p.title}</h2>
                 <ArrowUpRight size={18} />
@@ -168,6 +179,8 @@ export default async function Home() {
                 {Array.from(p.messages[0].body).length > 100 ? "…" : ""}
               </p>}
             </Link>
+            {(showArchived || ["completed","cancelled","archived"].includes(p.status)) && <ActionForm actionName="archive-engagement" className="mt-4"><input type="hidden" name="id" value={p.id}/><input type="hidden" name="archived" value={showArchived?"false":"true"}/><Button variant="outline">{showArchived?"Restore engagement":"Archive engagement"}</Button></ActionForm>}
+            </article>
           ))}
         </section>
       </div>}

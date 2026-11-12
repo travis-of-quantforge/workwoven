@@ -111,6 +111,14 @@ test("admin can allocate demo credits; another verified user cannot open admin",
     await expect(
       page.getByRole("heading", { name: "Users and demo AI tokens" }),
     ).toBeVisible();
+    await expect(page.getByLabel("Free tokens on account creation",{exact:true})).toHaveValue("110");
+    const personal = page.locator("section.panel").filter({has:page.getByRole("heading",{name:adminEmail,exact:true})}).locator("form").filter({has:page.locator('input[name="target"][value="wallet"]')});
+    await personal.getByLabel("Workspace tokens",{exact:true}).fill("5");
+    await personal.getByLabel("Reason",{exact:true}).fill("Personal wallet browser fixture");
+    await personal.getByRole("button",{name:"Apply",exact:true}).click();
+    const walletAfter=await service.from("account_token_wallets").select("available_nano").eq("user_id",adminUser.id).single();
+    await expect.poll(async()=> (await service.from("account_token_wallets").select("available_nano").eq("user_id",adminUser.id).single()).data?.available_nano).toBe(1500000000);
+    expect(walletAfter.error).toBeNull();
     const unverifiedCard = page.locator("section.panel").filter({ has: page.getByRole("heading", { name: unverifiedEmail, exact: true }) });
     await expect(unverifiedCard.getByText("Email unverified", { exact: true })).toBeVisible();
     await unverifiedCard.getByRole("button", { name: "Verify email", exact: true }).click();
@@ -129,7 +137,7 @@ test("admin can allocate demo credits; another verified user cannot open admin",
     await shared.getByRole("button", { name: "Apply" }).click();
     await expect(project.getByText("client · funded")).toBeVisible();
     await expect(
-      shared.getByText("Available 50 tokens", { exact: false }),
+      shared.getByText("Available 100 tokens", { exact: false }),
     ).toBeVisible();
     const account = await service
       .from("agent_accounts")
@@ -138,7 +146,7 @@ test("admin can allocate demo credits; another verified user cannot open admin",
       .eq("visibility", "shared")
       .single();
     expect(account.error).toBeNull();
-    expect(account.data?.available_nano).toBe(5000000000);
+    expect(account.data?.available_nano).toBe(10000000000);
     const adjustment = await service
       .from("admin_credit_adjustments")
       .select("delta_nano,reason")
@@ -165,6 +173,19 @@ test("admin can allocate demo credits; another verified user cannot open admin",
         () => document.documentElement.scrollWidth <= window.innerWidth,
       ),
     ).toBe(true);
+    expect((await adminDb.rpc("close_engagement",{e:first.data,target:"cancelled",expected:null,reason:"Admin list cancellation fixture."})).error).toBeNull();
+    await page.goto("/admin");
+    await expect(page.getByRole("link",{name:`[E2E] Admin first ${run}`,exact:true})).toHaveCount(0);
+    await expect(page.getByRole("link",{name:`[E2E] Admin pending ${run}`,exact:true})).toBeVisible();
+    // Isolated UI status fixtures; completion approval rules are tested elsewhere.
+    for(const status of ["completed","archived"]){
+      const fixture=await service.from("engagements").insert({creator_id:adminUser.id,title:`[E2E] Admin ${status} ${run}`,funding:"funded"}).select("id").single();expect(fixture.error).toBeNull();
+      expect((await service.from("memberships").insert({engagement_id:fixture.data!.id,user_id:adminUser.id,role:"client"})).error).toBeNull();
+      expect((await service.from("engagements").update({status}).eq("id",fixture.data!.id)).error).toBeNull();
+    }
+    await page.goto("/admin");
+    for(const status of ["completed","archived"])await expect(page.getByRole("link",{name:`[E2E] Admin ${status} ${run}`,exact:true})).toHaveCount(0);
+    await expect(page.getByRole("link",{name:`[E2E] Admin pending ${run}`,exact:true})).toBeVisible();
     await adminContext.close();
   } finally {
     await cleanupIntegrationRun(run, service);

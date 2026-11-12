@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { findingKey } from "@/lib/assessment-presentation";
+import type { ConversationReview } from "@/lib/ai/conversation-checks";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ActionForm, ActionSubmitButton } from "./action-form";
 
@@ -8,7 +10,7 @@ export function reviewEvidenceHref(id: string, ref: string) {
   const base = `/workspace/${id}`;
   if (kind === "message")
     return `${base}?tab=discussion&message=${record}#message-${record}`;
-  if (kind === "attachment") return `${base}?tab=files#file-${record}`;
+  if (kind === "attachment") return `/api/attachments/${record}/download`;
   if (kind === "contract")
     return `${base}?tab=contract&version=${record}#contract-archive-${record}`;
   if (["milestone", "agreement"].includes(kind))
@@ -20,10 +22,12 @@ export async function ConversationFindings({
   db,
   id,
   assessmentId,
+  review,
 }: {
   db: SupabaseClient;
   id: string;
   assessmentId?: string;
+  review?: ConversationReview;
 }) {
   let query = db
     .from("conversation_findings")
@@ -33,7 +37,14 @@ export async function ConversationFindings({
     .eq("engagement_id", id)
     .order("updated_at", { ascending: false })
     .limit(100);
-  if (assessmentId) query = query.eq("assessment_id", assessmentId);
+  if (assessmentId) {
+    const alternatives=[`assessment_id.eq.${assessmentId}`];
+    const ids=review?.findings.flatMap(f=>f.existingId?[f.existingId]:[]) || [];
+    const keys=review?.findings.map(f=>findingKey(f)) || [];
+    if(ids.length)alternatives.push(`id.in.(${ids.join(",")})`);
+    if(keys.length)alternatives.push(`issue_key.in.(${keys.join(",")})`);
+    query=query.or(alternatives.join(","));
+  }
   const [found, latest] = await Promise.all([
     query,
     assessmentId
@@ -131,6 +142,7 @@ export async function ConversationFindings({
                     const href = availability.data?.[`${c.ref}@${c.version}`]
                       ? reviewEvidenceHref(id, c.ref)
                       : null;
+                    const SourceLink=c.ref.startsWith("attachment:")?"a":Link;
                     return (
                       <blockquote
                         className="border-l-2 border-mint pl-3 my-2 text-xs"
@@ -139,9 +151,9 @@ export async function ConversationFindings({
                         {href ? c.quote : "Source unavailable"}
                         <br />
                         {href ? (
-                          <Link className="underline" href={href}>
-                            View source · version {c.version}
-                          </Link>
+                          <SourceLink className="underline" href={href}>
+                            {c.ref.startsWith("attachment:")?"Download source":"View source"} · version {c.version}
+                          </SourceLink>
                         ) : null}
                       </blockquote>
                     );

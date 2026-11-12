@@ -127,9 +127,13 @@ test("professional notification bell opens with one unread message on desktop an
       await expect.poll(() => messages.evaluate(el => el.scrollTop)).toBeCloseTo(120, 0);
       await page.reload();
       await expect.poll(() => messages.evaluate(el => el.scrollTop)).toBeCloseTo(120, 0);
-      expect((await service.from("messages").insert({ engagement_id:engagement, author_id:userId, visibility:"shared", kind:"human", channel:"discussion", body:"A new message must not pull the reader away from earlier decisions." })).error).toBeNull();
+      expect((await service.from("messages").insert({ engagement_id:engagement, author_id:userId, visibility:"shared", kind:"agent", channel:"discussion", body:"A new message must not pull the reader away from earlier decisions." })).error).toBeNull();
       await expect(messages.locator("article").filter({hasText:"A new message must not pull"})).toHaveCount(1);
       await expect.poll(() => messages.evaluate(el => el.scrollTop)).toBeCloseTo(120, 0);
+      await composer.fill("Sending brings me back to the latest message");
+      await composer.press("Control+Enter");
+      await expect(messages.getByText("Sending brings me back to the latest message",{exact:true})).toBeVisible();
+      await expect.poll(() => messages.evaluate(el=>el.scrollHeight-el.clientHeight-el.scrollTop)).toBeLessThan(3);
       await page.screenshot({path:"test-results/discussion-scroll-mobile.png", fullPage:true});
       await page.setViewportSize({width:1280,height:900});
       await page.screenshot({path:"test-results/discussion-scroll-desktop.png", fullPage:true});

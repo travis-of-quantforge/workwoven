@@ -82,7 +82,7 @@ test("Discussion milestone modal, two-party approval, revision and professional 
     await pp.getByLabel("Display name").fill("Demo professional");
     await pp.getByLabel("Professional hourly rate (USD)").fill("65");
     await pp
-      .getByRole("button", { name: "Save profile and visibility" })
+      .getByRole("button", { name: "Save profile" })
       .click();
     await expect(pp.getByRole("status")).toContainText("Saved");
     expect((await client.db.rpc("engagement_hourly_rate", { e })).data).toBe(
@@ -140,7 +140,7 @@ test("Discussion milestone modal, two-party approval, revision and professional 
         .locator("article")
         .filter({ hasText: "Fixture project-agent milestone advice" }),
     ).toBeHidden();
-    await cp.getByText("Chat with the project agent", { exact: true }).click();
+    await cp.getByRole("link", { name:"Project agent", exact: true }).click();
     await expect(
       cp.getByRole("heading", { name: "Project Agent" }),
     ).toBeVisible();
@@ -174,7 +174,7 @@ test("Discussion milestone modal, two-party approval, revision and professional 
         .getByLabel("Agent chat history")
         .getByText("Fixture project-agent milestone advice", { exact: true }),
     ).toBeVisible();
-    await cp.getByText("Chat with the project agent", { exact: true }).click();
+    await cp.getByRole("link",{name:"Shared workspace",exact:true}).click();
     await cp
       .getByRole("button", { name: "Propose milestones", exact: true })
       .click();

@@ -211,14 +211,14 @@ export async function MilestoneView({
                               ?.filter((f) => f.submission_id === s.id)
                               .map((f) => (
                                 <li key={f.attachment_id}>
-                                  <Link
+                                  <a
                                     className="underline"
-                                    href={`/workspace/${id}?tab=files#file-${f.attachment_id}`}
+                                    href={`/api/attachments/${f.attachment_id}/download`}
                                   >
                                     {files.data?.find(
                                       (a) => a.id === f.attachment_id,
                                     )?.name || "Shared file"}
-                                  </Link>
+                                  </a>
                                 </li>
                               ))}
                           </ul>

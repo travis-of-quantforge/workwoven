@@ -18,7 +18,7 @@ const source: Evidence = {
   excerpt: false,
 };
 it("rejects milestone drafts with no source citations", () => {
-  const draft = milestoneAgentResultSchema.parse({ answer: "Suggested work", kind: "milestones", citations: [], questions: [], proposal: null, summary: null, milestones: [{ description: "Build the reporting dashboard" }] });
+  const draft = milestoneAgentResultSchema.parse({ answer: "Suggested work", kind: "milestones", citations: [], questions: [], proposal: null, summary: null, milestones: [{ description: "Build the reporting dashboard", acceptanceCriteria:"Exported totals match the source.", responsibilities:null }] });
   expect(() => validateGrounding(draft, [])).toThrow("Milestone descriptions require supporting evidence");
 });
 const advice: AgentResult = {

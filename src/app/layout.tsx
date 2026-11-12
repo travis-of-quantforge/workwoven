@@ -6,6 +6,7 @@ import "@bryntum/core-enterprise/fontawesome/css/fontawesome.css";
 import "@bryntum/core-enterprise/fontawesome/css/solid.css";
 import "./globals.css";
 export const metadata: Metadata = {
+  icons: { icon: { url: "/favicon.png", type: "image/png" }, shortcut: "/favicon.png" },
   title: process.env.NEXT_PUBLIC_APP_NAME || "Workspace",
   description:
     "A shared space for clear agreements and thoughtful collaboration.",

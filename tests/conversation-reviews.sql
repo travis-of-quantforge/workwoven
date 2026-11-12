@@ -40,8 +40,10 @@ select id as finding from public.conversation_findings where engagement_id=:'e' 
 select set_config('test.review_finding',:'finding',false);
 do $$begin
  if(select count(*) from public.conversation_findings where engagement_id=current_setting('test.review_e')::uuid)<>1 then raise exception 'Duplicate finding';end if;
- if(select count(*) from public.notifications where engagement_id=current_setting('test.review_e')::uuid and title like 'Project agent review:%')<>2 then raise exception 'Missing or duplicate review notifications';end if;
- if(select count(*) from public.messages where engagement_id=current_setting('test.review_e')::uuid and kind='agent' and channel='discussion')<>1 then raise exception 'Duplicate intervention';end if;
+ if(select count(*) from public.notifications where engagement_id=current_setting('test.review_e')::uuid and title like 'Project agent review:%')<>2 then raise exception 'Missing or duplicate review notifications: %, assessment status %',(select count(*) from public.notifications where engagement_id=current_setting('test.review_e')::uuid and title like 'Project agent review:%'),(select status from public.message_assessments where id=current_setting('test.review_job')::uuid);end if;
+ if(select count(*) from public.messages where engagement_id=current_setting('test.review_e')::uuid and kind='agent' and channel='discussion')<>0 then raise exception 'Standalone assessment intervention';end if;
+ if not exists(select 1 from public.message_assessments where id=current_setting('test.review_job')::uuid and status='flagged' and notice_message_id is null) then raise exception 'Source-bound review missing';end if;
+ if exists(select 1 from public.notifications where assessment_id=current_setting('test.review_job')::uuid and record_id<>current_setting('test.review_source')::uuid) then raise exception 'Review notification not linked to source';end if;
  if exists(select 1 from public.message_assessments a join public.messages m on m.id=a.message_id where m.kind='agent') then raise exception 'Recursive review';end if;
 end $$;
 set role authenticated;
@@ -61,9 +63,12 @@ do $$begin
 end $$;
 set role authenticated;
 select public.request_conversation_review(:'e') as job3 \gset
+select set_config('test.manual_review_job',:'job3',false);
 set role service_role;
 select public.prepare_conversation_review(:'job3');
-do $$begin if public.claim_message_assessment((select id from public.message_assessments where requested and engagement_id=current_setting('test.review_e')::uuid order by created_at desc limit 1),null,1000000) is not null then raise exception 'Unchanged review charged';end if;end $$;
+do $$begin if public.claim_message_assessment(current_setting('test.manual_review_job')::uuid,null,1000000) is not null then raise exception 'Unchanged review charged';end if;end $$;
+reset role;
+do $$begin if not exists(select 1 from public.message_assessments a join public.messages m on m.id=a.notice_message_id where a.id=current_setting('test.manual_review_job')::uuid and m.channel='agent' and m.reply_to=a.message_id) then raise exception 'Explicit cached review lost its project-chat answer: %',(select jsonb_build_object('status',a.status,'reason',a.reason,'requested',a.requested,'channel',m.channel,'kind',m.kind,'notice',a.notice_message_id,'version',a.review_version,'prepared',a.context_hash is not null,'fresh',a.context_hash=public.review_context_hash(a.engagement_id),'running',(select count(*) from public.message_assessments where engagement_id=a.engagement_id and status='running')) from public.message_assessments a join public.messages m on m.id=a.message_id where a.id=current_setting('test.manual_review_job')::uuid);end if;end $$;
 set role authenticated;
 select public.post_discussion_message(:'e','shared','Now please launch on Friday.') as stale_source \gset
 select id as stale_job from public.message_assessments where message_id=:'stale_source' \gset

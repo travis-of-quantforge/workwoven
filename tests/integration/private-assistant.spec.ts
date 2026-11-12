@@ -39,6 +39,7 @@ test("private assistant uses the central scrollable chat without exposing it to 
     await pro.page.goto(`/workspace/${e}?tab=discussion&context=private`);
     const chat = pro.page.getByRole("region", {name:"Private assistant messages",exact:true});
     await expect(chat).toBeVisible();
+    await expect(pro.page.getByRole("note").filter({hasText:"Private chat:"})).toHaveClass(/bg-emerald-50/);
     await expect(pro.page.getByLabel("Help with",{exact:true})).toHaveCount(0);
     await expect(pro.page.getByLabel("Selected content",{exact:true})).toHaveCount(0);
     await expect(pro.page.getByRole("link",{name:"Your private assistant",exact:true}).locator("svg")).toHaveCount(0);
@@ -64,12 +65,13 @@ test("private assistant uses the central scrollable chat without exposing it to 
     const input=pro.page.getByRole("textbox",{name:"Message your private assistant",exact:true});
     await input.fill("PRIVATE synthetic question: help assess the dashboard estimate.");
     await pro.page.getByRole("button",{name:"Send",exact:true}).click();
-    await expect(pro.page.getByRole("alert").filter({hasText:"Synthetic retryable failure"})).toBeVisible();
+    await expect(chat.getByRole("alert").filter({hasText:"Synthetic retryable failure"})).toBeVisible();
+    await expect(chat.locator("article").filter({hasText:"Synthetic retryable failure"})).toContainText("PRIVATE synthetic question: help assess the dashboard estimate.");
     await expect(input).not.toHaveValue("");
     await pro.page.getByRole("button",{name:"Send",exact:true}).click();
     await expect(chat.getByText(/^PRIVATE synthetic assistant reply:/)).toHaveCount(1);
     await expect(input).toHaveValue("");
-    await expect.poll(()=>chat.evaluate(el=>el.scrollTop)).toBeCloseTo(100,0);
+    await expect.poll(()=>chat.evaluate(el=>el.scrollHeight-el.clientHeight-el.scrollTop)).toBeLessThan(3);
     await expect(chat.getByText(/^PRIVATE synthetic assistant reply:/)).toHaveCSS("color","rgb(30, 58, 138)");
     await client.page.goto(`/workspace/${e}?tab=discussion&context=private`);
     await expect(client.page.getByText(/PRIVATE synthetic|Private historical note/)).toHaveCount(0);
@@ -81,5 +83,51 @@ test("private assistant uses the central scrollable chat without exposing it to 
     expect(await pro.page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
     await pro.page.screenshot({path:"test-results/private-chat-mobile.png",fullPage:true});
     expect(calls).toBe(2);
+    expect((await service.from("messages").insert(Array.from({length:25},(_,i)=>({engagement_id:e,author_id:pro.user.id,visibility:"shared",kind:"human",channel:"agent",body:`Project chat history ${i}: review the current goals and agreed requirements before making changes.\nKeep earlier context readable.`})))).error).toBeNull();
+    await pro.page.goto(`/workspace/${e}?tab=discussion`);
+    await pro.page.getByRole("link",{name:"Project agent",exact:true}).click();
+    const projectChat=pro.page.getByRole("region",{name:"Project agent messages",exact:true});
+    await expect.poll(()=>projectChat.evaluate(el=>el.scrollHeight>el.clientHeight)).toBe(true);
+    await expect(pro.page.getByRole("note").filter({hasText:"Shared chat:"})).toHaveClass(/bg-red-50/);
+    await expect(pro.page.getByRole("heading",{name:"Discussion",exact:true})).toHaveCount(0);
+    await expect.poll(()=>projectChat.evaluate(el=>el.scrollHeight-el.clientHeight-el.scrollTop)).toBeLessThan(3);
+    await projectChat.evaluate(el=>{el.scrollTop=40;el.dispatchEvent(new Event("scroll"));});
+    await pro.page.getByRole("link",{name:"Shared workspace",exact:true}).click();
+    await expect(pro.page.getByRole("heading",{name:"Discussion",exact:true})).toBeVisible();
+    await pro.page.getByRole("link",{name:"Project agent",exact:true}).click();
+    await expect.poll(()=>projectChat.evaluate(el=>el.scrollHeight-el.clientHeight-el.scrollTop)).toBeLessThan(3);
+
+    await projectChat.evaluate(el=>{el.scrollTop=60;el.dispatchEvent(new Event("scroll"));});
+    await pro.page.unroute("**/api/agents");
+    let projectCalls=0;let failedKey="";
+    await pro.page.route("**/api/agents",async route=>{
+      const request=route.request().postDataJSON();
+      expect(request.visibility).toBe("shared");
+      projectCalls++;
+      if(projectCalls===1){failedKey=request.operationKey;await route.fulfill({status:200,contentType:"application/x-ndjson",body:JSON.stringify({type:"error",retryable:true,message:"Synthetic confirmed failure"})+"\n"});return;}
+      expect(request.operationKey).not.toBe(failedKey);
+      const answer="Project synthetic reply: agree on the CSV columns.";
+      expect((await service.from("messages").insert([
+        {engagement_id:e,author_id:pro.user.id,visibility:"shared",kind:"human",channel:"agent",body:request.question},
+        {engagement_id:e,author_id:pro.user.id,visibility:"shared",kind:"agent",channel:"agent",body:answer},
+      ])).error).toBeNull();
+      await route.fulfill({status:200,contentType:"application/x-ndjson",body:JSON.stringify({type:"result",status:"succeeded",result:{answer,kind:"advice",citations:[],questions:[],proposal:null,summary:null}})+"\n"});
+    });
+    await pro.page.getByRole("textbox",{name:"Your question",exact:true}).fill("What columns should we agree?");
+    await pro.page.getByRole("textbox",{name:"Your question",exact:true}).press("Control+Enter");
+    await expect(projectChat.getByRole("alert").filter({hasText:"Synthetic confirmed failure"})).toBeVisible();
+    await expect(projectChat.locator("article").filter({hasText:"Synthetic confirmed failure"})).toContainText("What columns should we agree?");
+    await pro.page.getByRole("button",{name:"Send",exact:true}).click();
+    await expect(projectChat.getByText("Project synthetic reply: agree on the CSV columns.",{exact:true})).toBeVisible();
+    await expect.poll(()=>projectChat.evaluate(el=>el.scrollHeight-el.clientHeight-el.scrollTop)).toBeLessThan(3);
+    const projectInput=pro.page.getByRole("textbox",{name:"Your question",exact:true});
+    await expect(projectInput).toHaveValue("");
+    await pro.page.unroute("**/api/agents");
+    await pro.page.route("**/api/agents",async route=>route.fulfill({status:200,json:{status:"review_queued",reviewId:randomUUID()}}));
+    await projectInput.fill("Please review the discussion.");
+    await pro.page.getByRole("button",{name:"Send",exact:true}).click();
+    await expect(projectInput).toHaveValue("");
+
+
   } finally { for(const context of contexts) await context.close(); await cleanupIntegrationRun(run,service); }
 });

@@ -5,6 +5,8 @@ import { authenticated } from "@/lib/supabase/server";
 import { adminDatabase } from "@/lib/supabase/admin";
 import { isWorkspaceAdmin } from "@/lib/admin-access";
 import { formatTokens } from "@/lib/ai/pricing";
+import { SignupTokenForm } from "./signup-token-form";
+import { TOKEN_ATOMS } from "@/lib/ai/pricing";
 import { CreditForm } from "./credit-form";
 import { VerificationForm } from "./verification-form";
 
@@ -28,6 +30,9 @@ export default async function Admin({
   if (usersResult.error) throw new Error("Unable to load users.");
   const users = usersResult.data.users;
   const userIds = users.map((user) => user.id);
+  const wallets = userIds.length ? await service.from("account_token_wallets").select("user_id,available_nano").in("user_id",userIds) : {data:[],error:null};
+  const signupSetting=await service.from("account_token_settings").select("free_signup_nano").single();
+  if(wallets.error || signupSetting.error)throw new Error("Unable to load account tokens.");
   const memberships = userIds.length
     ? await service
         .from("memberships")
@@ -47,12 +52,14 @@ export default async function Admin({
         .from("engagements")
         .select("id,title,funding")
         .in("id", engagementIds)
+        .in("status", ["discussion", "active"])
     : { data: [], error: null };
-  const accounts = engagementIds.length
+  const activeEngagementIds = new Set((projects.data || []).map(p => p.id));
+  const accounts = activeEngagementIds.size
     ? await service
         .from("agent_accounts")
         .select("id,engagement_id,visibility,available_nano,reserved_nano")
-        .in("engagement_id", engagementIds)
+        .in("engagement_id", [...activeEngagementIds])
     : { data: [], error: null };
   if (projects.error || accounts.error)
     throw new Error("Unable to load agent balances.");
@@ -82,10 +89,11 @@ export default async function Admin({
           Users
         </span>
       </nav>
+      <SignupTokenForm amount={String(Number(signupSetting.data.free_signup_nano)/Number(TOKEN_ATOMS))} operationKey={randomUUID()}/>
       <div className="stack">
         {users.map((user) => {
           const memberRows = (memberships.data || []).filter(
-            (m) => m.user_id === user.id,
+            (m) => m.user_id === user.id && activeEngagementIds.has(m.engagement_id),
           );
           const name = (profiles.data || []).find(
             (p) => p.id === user.id,
@@ -100,8 +108,9 @@ export default async function Admin({
               <p className="mt-3 text-sm">{user.email_confirmed_at ? "Email verified" : "Email unverified"}</p>
               {!user.email_confirmed_at && <VerificationForm userId={user.id} />}
               <Link href={`/admin/users/${user.id}/conversations`} prefetch={false} className="mt-3 inline-block text-sm underline">View conversations</Link>
+              <div className="mt-4"><p><strong>{formatTokens(wallets.data?.find(w=>w.user_id===user.id)?.available_nano || "0")}</strong> available for new engagements</p><CreditForm wallet accountId={user.id} operationKey={randomUUID()}/></div>
               {!memberRows.length && (
-                <p className="muted mt-4">No engagements yet.</p>
+                <p className="muted mt-4">No active engagements.</p>
               )}
               {memberRows.map((member) => {
                 const project = (projects.data || []).find(

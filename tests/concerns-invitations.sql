@@ -1,6 +1,8 @@
 \set ON_ERROR_STOP on
 do $$begin
- if has_function_privilege('authenticated','public.unverified_invited_user(text)','execute')
+ if has_function_privilege('authenticated','public.invitation_has_account(text)','execute')
+ or has_function_privilege('anon','public.invitation_has_account(text)','execute')
+ or has_function_privilege('authenticated','public.unverified_invited_user(text)','execute')
  or has_function_privilege('anon','public.unverified_invited_user(text)','execute') then
   raise exception 'Invitation auth lookup must remain service-only';
  end if;
@@ -33,6 +35,12 @@ do $$begin
  begin perform public.accept_invitation(current_setting('test.revoked_token'));raise exception 'Revoked invitation accepted';
  exception when raise_exception then if sqlerrm='Revoked invitation accepted' then raise;end if;end;
 end $$;
+reset role;
+do $$begin
+ if public.invitation_has_account(current_setting('test.revoked_token')) then raise exception 'Revoked invitation disclosed account';end if;
+ if public.invitation_has_account(repeat('a',64)) then raise exception 'Unknown invitation disclosed account';end if;
+end $$;
+set role authenticated;
 -- A fresh invitation remains possible after revocation.
 select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000002',false);
 select public.create_invitation(:'engagement','client@example.test') as accepted_token \gset
@@ -43,6 +51,10 @@ do $$begin
   raise exception 'Wrong account accepted invitation by ID';
  exception when others then if sqlerrm<>'Invitation unavailable for this account' then raise;end if;end;
 end $$;
+reset role;
+select set_config('test.routing_token',:'accepted_token',false);
+do $$begin if not public.invitation_has_account(current_setting('test.routing_token')) then raise exception 'Existing invitee not detected';end if;end $$;
+set role authenticated;
 select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',false);
 select public.set_active_role('professional');
 do $$declare received uuid;begin

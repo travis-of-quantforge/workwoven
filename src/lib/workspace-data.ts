@@ -8,12 +8,13 @@ export const workspaceData = cache(async (id: string) => {
   let auth;
   try { auth = await authenticated(); } catch { redirect("/login"); }
   const { db, user } = auth;
-  const [projectResult, membersResult, sidebarResult, profileResult, ownMembershipsResult] = await Promise.all([
+  const [projectResult, membersResult, sidebarResult, profileResult, ownMembershipsResult, archiveResult] = await Promise.all([
     db.from("engagements").select("*").eq("id", id).single(),
     db.from("memberships").select("*").eq("engagement_id", id),
     db.from("engagements").select("id,title").order("created_at"),
     db.from("profiles").select("active_role").eq("id", user.id).maybeSingle(),
     db.from("memberships").select("engagement_id,role").eq("user_id", user.id),
+    db.from("engagement_archives").select("engagement_id").eq("user_id",user.id),
   ]);
   const project = projectResult.data;
   if (!project) notFound();
@@ -21,9 +22,11 @@ export const workspaceData = cache(async (id: string) => {
   const role = members.find((m) => m.user_id === user.id)?.role;
   const activeRole: "client" | "professional" =
     profileResult.data?.active_role === "professional" ? "professional" : "client";
+  if(archiveResult.error)throw new Error("Unable to load engagement archive.");
+  const archivedIds=new Set(archiveResult.data?.map(row=>row.engagement_id));
   const sidebarProjects = sidebarResult.data?.filter((p) =>
-    p.id === id || ownMembershipsResult.data?.some((m) => m.engagement_id === p.id && m.role === activeRole),
+    p.id === id || (!archivedIds.has(p.id) && ownMembershipsResult.data?.some((m) => m.engagement_id === p.id && m.role === activeRole)),
   );
   const identities = await db.rpc("party_identities", { e: id });
-  return { db, user, project, members, role, activeRole, sidebarProjects, identities };
+  return { db, user, project, members, role, activeRole, sidebarProjects, identities, isArchived:archivedIds.has(id) };
 });

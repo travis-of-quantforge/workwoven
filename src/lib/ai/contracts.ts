@@ -10,7 +10,7 @@ export const agentModeSchema = z.enum([
 ]);
 export const evidenceSchema = z.object({
   ref: z.string(),
-  kind: z.enum(["message", "agreement", "attachment"]),
+  kind: z.enum(["message", "agreement", "attachment", "contract", "milestone", "payment", "refund"]),
   record_id: z.uuid(),
   version: z.string(),
   body: z.string(),
@@ -91,7 +91,7 @@ export function validateGrounding(result: AgentResult, evidence: Evidence[]) {
       throw new Error("Unsupported evidence reference");
   if (
     ["change", "summary", "milestones"].includes(result.kind) &&
-    evidence.some((e) => e.kind === "agreement" && e.state === "agreed") &&
+    evidence.some((e) => ["agreement","contract","milestone"].includes(e.kind) && e.state === "agreed") &&
     !result.citations.some((c) =>
       evidence.some((e) => e.ref === c.ref && e.state === "agreed"),
     )

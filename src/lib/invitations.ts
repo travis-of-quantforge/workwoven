@@ -15,3 +15,10 @@ export async function activeInvitation(token: string) {
   if (error) throw new Error("Invitation status could not be checked. Please retry.");
   return data;
 }
+
+export async function invitationHasAccount(token: string) {
+  if (!/^[a-f0-9]{64}$/.test(token)) return false;
+  const {data,error}=await adminDatabase().rpc("invitation_has_account",{t:token});
+  if(error)throw new Error("Invitation account status could not be checked. Please retry.");
+  return data===true;
+}

@@ -117,28 +117,22 @@ export async function ReputationView({
           </p>
         )}
         <p className="muted my-3">
-          A formally accepted agreement is required before a completed or
-          cancelled engagement is eligible. An invitation or discussion alone
-          cannot establish eligibility. Feedback is frozen on submission and
-          publishes after both submit or 14 days. Written feedback about clients
-          is visible on their public profiles.
+          This engagement has ended. Existing feedback and portfolio records are read-only.
+          Previously submitted feedback keeps its original publication rules.
         </p>
         <Link className="underline text-sm" href="/profile">
           Manage your public profile
         </Link>
         {!w && (
           <p className="notice mt-4">
-            No eligible review window.{" "}
-            {accepted
-              ? "Close this engagement first."
-              : "No agreement has been accepted."}
+            No feedback was recorded for this engagement.
           </p>
         )}
         {w && (
           <p className="notice mt-4">
             {published
               ? "Feedback published to participants. Public display also requires the reviewed party’s public profile and non-demo activity."
-              : `Double-blind submission window closes ${new Date(w.closes_at).toLocaleString("en-GB", { timeZone: "UTC" })} UTC. Unpublished feedback is visible only to its author.`}
+              : `Previously submitted feedback publishes by ${new Date(w.closes_at).toLocaleString("en-GB", { timeZone: "UTC" })} UTC. Unpublished feedback is visible only to its author.`}
           </p>
         )}
         {w && !own && !published && (

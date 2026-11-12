@@ -45,7 +45,12 @@ end $$;
 reset role;
 set role authenticated;
 select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',false);
-select public.create_engagement('Admin-funded fixture','client') as pending_admin \gset
+reset role;
+-- Legacy pending record: current creation correctly cannot produce this state.
+insert into public.engagements(creator_id,title,funding) values('00000000-0000-0000-0000-000000000001','Admin-funded fixture','pending') returning id as pending_admin \gset
+insert into public.memberships values(:'pending_admin','00000000-0000-0000-0000-000000000001','client');
+insert into public.agent_accounts(engagement_id,visibility) select :'pending_admin',v from unnest(enum_range(null::public.visibility)) v;
+
 reset role;
 select set_config('test.pending_admin',:'pending_admin',false);
 do $$begin

@@ -24,4 +24,11 @@ do $$declare e uuid:=current_setting('test.files_e')::uuid;begin
  if exists(select 1 from public.milestone_agent_context(e) where body like '%PRIVATE REQUIREMENT%' or body like '%PENDING REQUIREMENT%') then raise exception 'Private/pending content leaked';end if;
  if not exists(select 1 from public.milestone_agent_context(e) where ref='attachment:96000000-0000-4000-8000-000000000006' and state='unavailable_text' and body like '%design.pdf%' and excerpt) then raise exception 'Unreadable file silently omitted';end if;
 end $$;
+reset role;
+do $$declare sources jsonb;file jsonb;begin
+ sources:=public.shared_review_sources(current_setting('test.files_e')::uuid);
+ select value into file from jsonb_array_elements(sources) where value->>'ref'='attachment:96000000-0000-4000-8000-000000000003';
+ if file is null or file->>'uploaderRole'<>'client' or file->>'sourceMessageRef'<>'message:96000000-0000-4000-8000-000000000002' then raise exception 'Shared file provenance missing';end if;
+ if sources::text like '%PRIVATE REQUIREMENT%' or sources::text like '%PENDING REQUIREMENT%' then raise exception 'File provenance imported private/pending evidence';end if;
+end $$;
 rollback;
