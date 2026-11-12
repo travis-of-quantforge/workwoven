@@ -432,9 +432,11 @@ export async function PaymentView({
                 </tr>
               </thead>
               <tbody>
-                {ledgerResult.data.map((entry) => (
+                {ledgerResult.data.map((entry, index) => (
                   <tr key={entry.id} className="border-b border-slate-100">
                     <td className="p-3 whitespace-nowrap text-xs">
+                      {entry.payment_id && ledgerResult.data.findIndex(row => row.payment_id === entry.payment_id) === index && <span id={`payment-${entry.payment_id}`} />}
+                      {entry.refund_id && ledgerResult.data.findIndex(row => row.refund_id === entry.refund_id) === index && <span id={`refund-${entry.refund_id}`} />}
                       {new Date(entry.created_at).toLocaleString("en-GB", {
                         timeZone: "UTC",
                       })}

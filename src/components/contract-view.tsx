@@ -138,10 +138,10 @@ export async function ContractView({
         </ActionForm>
       </section>
       <section className="panel">
-        <h3>Automatic scope and contract checks</h3>
+        <h3>Automatic conversation checks</h3>
         <p className="muted my-3">
           {enabled ? "On" : "Paused"}. Shared discussion messages are checked
-          after sending against accepted terms only. Checks use shared AI
+          after sending for scope changes, material ambiguity, conflicting information, misunderstandings, unanswered questions and disagreements. Accepted terms establish commitments. Checks use shared AI
           tokens, capped at 5 tokens per day and 60 checks. Failed or unusable
           checks are not charged. Private assistants and private tokens are
           excluded. AI notices are advice, not decisions.

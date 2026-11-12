@@ -160,6 +160,17 @@ export async function approveContract(f:FormData) {
   if(version.error) throw new WorkspaceActionError("Contract unavailable.");
   await command("approve_contract",{v});revalidatePath(`/workspace/${e}`);
 }
+export async function reviewConversation(f: FormData) {
+  const e = id(f);
+  await command("request_conversation_review", {e});
+  after(() => processQueuedAssessment(e));
+  revalidatePath(`/workspace/${e}`);
+}
+export async function markConversationFinding(f: FormData) {
+  const e = id(f);
+  await command("mark_conversation_finding", {f:z.uuid().parse(f.get("finding")),s:z.enum(["resolved","dismissed"]).parse(f.get("status")),feedback:z.string().max(2000).parse(f.get("feedback") || "")});
+  revalidatePath(`/workspace/${e}`);
+}
 export async function setScopeMonitor(f:FormData) {
   const e=id(f);await command("set_scope_monitor",{e,enabled:z.enum(["true","false"]).parse(f.get("enabled"))==="true"});revalidatePath(`/workspace/${e}`);
 }
@@ -908,6 +919,8 @@ export async function workspaceFormAction(
     "contract-propose": proposeContract,
     "contract-approve": approveContract,
     "scope-monitor": setScopeMonitor,
+    "conversation-review": reviewConversation,
+    "conversation-finding": markConversationFinding,
     message: postMessage,
     share: shareContent,
     scope: submitScope,

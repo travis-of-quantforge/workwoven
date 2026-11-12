@@ -222,7 +222,10 @@ export function AgentPanel({
       }
       if (!response.headers.get("content-type")?.includes("ndjson")) {
         const data = await response.json();
-        if (data.result) {
+        if (data.status === "review_queued") {
+          setStatus("Discussion review queued. Findings and evidence appear in Conversation checks.");
+          operation.current = null;
+        } else if (data.result) {
           agentResultSchema.parse(data.result);
           setStatus(
             data.status === "partial_offered"

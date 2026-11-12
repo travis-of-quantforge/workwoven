@@ -1,3 +1,6 @@
+import { boundedMilestoneEvidence } from "@/lib/ai/milestone-evidence";
+import { after } from "next/server";
+import { processQueuedAssessment } from "@/lib/ai/scope-monitor";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { authenticated } from "@/lib/supabase/server";
@@ -94,16 +97,30 @@ export async function POST(request: Request) {
       { error: "Agent context unavailable." },
       { status: 403 },
     );
+  if (value.visibility === "shared" && (value.mode === "scope" || /\b(mediate|mediation|review (?:the )?(?:discussion|conversation))\b/i.test(value.question))) {
+    const queued = await db.rpc("request_conversation_review_prompt", {e:value.engagementId,prompt:value.question});
+    if (queued.error) return Response.json({error:"Discussion review could not be queued."},{status:409});
+    after(() => processQueuedAssessment(value.engagementId));
+    return Response.json({status:"review_queued",reviewId:queued.data});
+  }
   let modelQuestion = value.question;
+  if (value.visibility === "shared") {
+    const findings = await db.from("conversation_findings").select("explanation,next_step,evidence,status").eq("engagement_id",value.engagementId).in("status",["open","awaiting_clarification"]).limit(20);
+    if (findings.error) return Response.json({error:"Current shared findings could not be loaded."},{status:503});
+    const advisory = JSON.stringify(findings.data);
+    if (Buffer.byteLength(advisory) <= 12000) modelQuestion += "\nCurrent unresolved shared findings (advisory, not commitments; verify source records): " + advisory;
+    else modelQuestion += "\nThe unresolved finding list exceeds this chat context; use Review discussion for current issues.";
+  }
   let milestoneContext: z.infer<typeof evidenceSchema>[] | null = null;
   if (value.mode === "milestones") {
     if (value.visibility !== "shared") return Response.json({ error: "Milestone drafting uses the shared project agent." }, { status: 400 });
     const context = await db.rpc("milestone_agent_context", { e: value.engagementId });
     const parsed = z.array(evidenceSchema).safeParse(context.data);
     if (context.error || !parsed.success) return Response.json({ error: "The shared project context could not be loaded. Please retry." }, { status: 503 });
-    milestoneContext = parsed.data;
+    try { milestoneContext = boundedMilestoneEvidence(parsed.data); }
+    catch { return Response.json({error:"Too many shared sources for one milestone draft. Reduce the attached context before retrying."},{status:413}); }
     if (!milestoneContext.length) return Response.json({ error: "Add your project goals in shared Discussion or a supported shared file before drafting milestone descriptions." }, { status: 409 });
-    modelQuestion += "\nDraft descriptions only using shared goals and accepted terms. People will enter amounts and deadlines separately. Do not read private sources.";
+    modelQuestion += "\nDraft descriptions using shared goals, uploaded shared file contents and accepted terms. Explicitly identify unreadable files and incomplete excerpts. People will enter amounts and deadlines separately. Do not read private sources.";
   }
   const admin = adminDatabase();
   const priceResult = await admin

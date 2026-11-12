@@ -3,6 +3,11 @@ import OpenAI from "openai";
 import { zodTextFormat } from "openai/helpers/zod";
 import { z } from "zod";
 import { adminDatabase } from "../supabase/admin";
+import {
+  conversationReviewSchema,
+  validateConversationReview,
+} from "./conversation-checks";
+import { conversationInstructions, reviewInput } from "./conversation-context";
 import { reservationBudget, validateCacheUsage, type Price } from "./pricing";
 
 export const assessmentSchema = z.object({
@@ -85,15 +90,16 @@ export async function processQueuedAssessment(engagementId?: string) {
     .from("message_assessments")
     .select("*")
     .eq("status", "queued")
-    .order("created_at")
+    .order("created_at", { ascending: false })
     .limit(1);
   if (engagementId) query = query.eq("engagement_id", engagementId);
   const found = await query.maybeSingle();
   if (found.error || !found.data) return;
   const job = found.data;
   let operation: string | null = null;
+  const extended = job.review_version === 1;
   async function fail(reason: string) {
-    await db.rpc("fail_message_assessment", { j: job.id, why: reason });
+    await db.rpc(extended && !operation ? "fail_unclaimed_message_assessment" : "fail_message_assessment", { j: job.id, why: reason });
   }
   try {
     if (
@@ -104,47 +110,59 @@ export async function processQueuedAssessment(engagementId?: string) {
       await fail("ai_unavailable");
       return;
     }
-    const source = await db
-      .from("messages")
-      .select("body,created_at")
-      .eq("id", job.message_id)
-      .eq("engagement_id", job.engagement_id)
-      .eq("author_id", job.actor_id)
-      .eq("visibility", "shared")
-      .eq("channel", "discussion")
-      .in("kind", ["human", "share"])
-      .single();
-    if (source.error) {
-      await fail("source_unavailable");
-      return;
-    }
-    const terms = monitorTermsSchema.parse(job.terms);
-    if (!terms.length) {
-      await fail("no_accepted_terms");
-      return;
-    }
-    const recent = await db
-      .from("messages")
-      .select("body")
-      .eq("engagement_id", job.engagement_id)
-      .eq("visibility", "shared")
-      .eq("channel", "discussion")
-      .eq("kind", "human")
-      .lt("created_at", source.data.created_at)
-      .order("created_at", { ascending: false })
-      .limit(5);
-    if (recent.error) {
-      await fail("context_unavailable");
-      return;
-    }
-    const input = JSON.stringify({
-      message: source.data.body,
-      acceptedTerms: terms,
-      recentDiscussionExcerpts: recent.data.map((m) => m.body.slice(0, 1000)),
-    });
-    if (Buffer.byteLength(input, "utf8") > 48000) {
-      await fail("context_too_large");
-      return;
+    let input: string;
+    let sharedContext: ReturnType<typeof reviewInput> | null = null;
+    if (extended) {
+      const prepared = await db.rpc("prepare_conversation_review", {
+        j: job.id,
+      });
+      if (prepared.error) throw new Error("Context unavailable");
+      if (!prepared.data) return;
+      sharedContext = reviewInput(prepared.data);
+      input = JSON.stringify(sharedContext);
+    } else {
+      const source = await db
+        .from("messages")
+        .select("body,created_at")
+        .eq("id", job.message_id)
+        .eq("engagement_id", job.engagement_id)
+        .eq("author_id", job.actor_id)
+        .eq("visibility", "shared")
+        .eq("channel", "discussion")
+        .in("kind", ["human", "share"])
+        .single();
+      if (source.error) {
+        await fail("source_unavailable");
+        return;
+      }
+      const terms = monitorTermsSchema.parse(job.terms);
+      if (!terms.length) {
+        await fail("no_accepted_terms");
+        return;
+      }
+      const recent = await db
+        .from("messages")
+        .select("body")
+        .eq("engagement_id", job.engagement_id)
+        .eq("visibility", "shared")
+        .eq("channel", "discussion")
+        .eq("kind", "human")
+        .lt("created_at", source.data.created_at)
+        .order("created_at", { ascending: false })
+        .limit(5);
+      if (recent.error) {
+        await fail("context_unavailable");
+        return;
+      }
+      input = JSON.stringify({
+        message: source.data.body,
+        acceptedTerms: terms,
+        recentDiscussionExcerpts: recent.data.map((m) => m.body.slice(0, 1000)),
+      });
+      if (Buffer.byteLength(input, "utf8") > 48000) {
+        await fail("context_too_large");
+        return;
+      }
     }
     const pricing = await db
       .from("ai_pricing")
@@ -183,10 +201,15 @@ export async function processQueuedAssessment(engagementId?: string) {
         ...(price.cache_mode === "disabled"
           ? { prompt_cache_options: { mode: "explicit" as const } }
           : {}),
-        instructions,
+        instructions: extended ? conversationInstructions : instructions,
         input: [{ role: "user", content: input }],
-        text: { format: zodTextFormat(assessmentSchema, "message_assessment") },
-        max_output_tokens: 1400,
+        text: {
+          format: zodTextFormat(
+            extended ? conversationReviewSchema : assessmentSchema,
+            "message_assessment",
+          ),
+        },
+        max_output_tokens: extended ? 4096 : 1400,
       },
       { signal: AbortSignal.timeout(80000) },
     );
@@ -208,15 +231,45 @@ export async function processQueuedAssessment(engagementId?: string) {
     if (metered.error) throw new Error("Metering failed");
     if (response.status !== "completed")
       throw new Error("Unusable partial result");
-    const result = validateAssessment(
-      JSON.parse(response.output_text),
-      source.data.body,
-      terms,
+    let result: unknown;
+    if (extended && sharedContext) {
+      result = validateConversationReview(
+        JSON.parse(response.output_text),
+        job.engagement_id,
+        sharedContext.sources.map((source) => ({
+          ...source,
+          engagementId: job.engagement_id,
+          visibility: "shared",
+        })),
+        new Set(sharedContext.findings.map((f) => String(f.id))),
+        {
+          complete: sharedContext.complete,
+          requested: sharedContext.requested,
+          threshold: sharedContext.skippedQuestionMessages,
+        },
+      );
+    } else {
+      const source = await db
+        .from("messages")
+        .select("body")
+        .eq("id", job.message_id)
+        .eq("engagement_id", job.engagement_id)
+        .eq("visibility", "shared")
+        .eq("channel", "discussion")
+        .single();
+      if (source.error) throw new Error("Source unavailable");
+      result = validateAssessment(
+        JSON.parse(response.output_text),
+        source.data.body,
+        monitorTermsSchema.parse(job.terms),
+      );
+    }
+    if (extended && sharedContext && !sharedContext.complete)
+      (result as { coverage: string }).coverage = "incomplete";
+    const finished = await db.rpc(
+      extended ? "finish_conversation_review" : "finish_message_assessment",
+      { j: job.id, payload: result },
     );
-    const finished = await db.rpc("finish_message_assessment", {
-      j: job.id,
-      payload: result,
-    });
     if (finished.error) throw new Error("Assessment finalization failed");
   } catch {
     // All internal/unusable/uncertain failures release the user's reservation.

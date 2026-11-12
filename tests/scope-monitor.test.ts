@@ -225,3 +225,13 @@ it("skips unavailable AI and oversized full-term context without reserving credi
     why: "context_too_large",
   });
 });
+
+it("runs the extended review once through shared snapshot retrieval and the same metering", async () => {
+  fake.job.review_version = 1;
+  fake.rpc.mockImplementation(async(name:string)=>({data:name === "claim_message_assessment" ? "operation" : name === "prepare_conversation_review" ? {sources:[{ref:"message:source",version:"1",body:"Please add scheduled emails.",state:"discussed",date:"2026-11-12T00:00:00Z"}],findings:[],complete:true,requested:false} : null,error:null}));
+  fake.create.mockResolvedValue({id:"response",status:"completed",model:"fixture-model",service_tier:"default",output_text:JSON.stringify({summary:"No actionable findings",coverage:"complete",findings:[]}),usage:{input_tokens:100,output_tokens:20,input_tokens_details:{cached_tokens:0}}});
+  await processQueuedAssessment("engagement");
+  expect(fake.create).toHaveBeenCalledOnce();
+  expect(fake.create.mock.calls[0][0].max_output_tokens).toBe(4096);
+  expect(fake.rpc.mock.calls.map(c=>c[0])).toEqual(["prepare_conversation_review","claim_message_assessment","mark_usage_uncertain","record_usage","finish_conversation_review"]);
+});

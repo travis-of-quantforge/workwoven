@@ -218,6 +218,7 @@ test("contract creation, dual approval, private isolation and a grounded shared 
       .limit(1)
       .single();
     expect(pricing.error).toBeNull();
+    expect((await admin.from("message_assessments").update({review_version:0}).eq("id",job.data!.id)).error).toBeNull();
     const claim = await admin.rpc("claim_message_assessment", {
       j: job.data!.id,
       price: pricing.data!.id,

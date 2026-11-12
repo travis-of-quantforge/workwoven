@@ -14,7 +14,7 @@ select public.create_invitation(:'e','monitor-pro@example.test') as token \gset
 select public.propose_contract(:'e','Only CSV dashboards are included. Scheduled emails are excluded. Client supplies CSV data.',null,gen_random_uuid()) as v \gset
 select set_config('test.monitor_e',:'e',false),set_config('test.monitor_v',:'v',false),set_config('test.monitor_first',:'first_message',false);
 do $$begin
- if not exists(select 1 from public.message_assessments where message_id=current_setting('test.monitor_first')::uuid and status='skipped' and reason='no_accepted_terms') then raise exception 'Unaccepted draft treated as agreement';end if;
+ if not exists(select 1 from public.message_assessments where message_id=current_setting('test.monitor_first')::uuid and status='queued' and terms='[]'::jsonb) then raise exception 'Unaccepted draft treated as agreement';end if;
  if exists(select 1 from public.contract_approvals where version_id=current_setting('test.monitor_v')::uuid) then raise exception 'Submitting approved automatically';end if;
  begin perform public.approve_contract(current_setting('test.monitor_v')::uuid);raise exception 'Creator approved before counterpart joined';exception when raise_exception then if sqlerrm='Creator approved before counterpart joined' then raise;end if;end;
  begin update public.contract_versions set body='Silently changed';raise exception 'Contract edited directly';exception when insufficient_privilege then null;end;
@@ -50,6 +50,9 @@ reset role;
 select public.begin_agent_run(:'e','shared','95000000-0000-4000-8000-000000000001','Manual project agent request',gen_random_uuid(),1000000,:'price','fixture-manual-monitor') as manual_op \gset
 do $$begin if exists(select 1 from public.message_assessments a join public.agent_runs r on a.message_id=r.question_message_id where r.engagement_id=current_setting('test.monitor_e')::uuid) then raise exception 'Agent chat recursively monitored';end if;end $$;
 select public.finish_agent_run(:'manual_op',null,null,'internal_error');
+-- Explicitly retain the legacy schema/billing regression; conversation-reviews.sql exercises v1.
+reset role;
+update public.message_assessments set review_version=0;
 set role service_role;
 select public.claim_message_assessment(:'job',:'price',1000000) as op \gset
 select set_config('test.monitor_op',:'op',false);
@@ -74,6 +77,7 @@ do $$begin if not exists(select 1 from public.message_assessments where id=curre
 select public.post_discussion_message(:'e','shared','Please add scheduled email reports for every region.',:'source') as reply_source \gset
 select id as reply_job from public.message_assessments where message_id=:'reply_source' \gset
 reset role;
+update public.message_assessments set review_version=0;
 select public.claim_message_assessment(:'reply_job',:'price',1000000) as reply_op \gset
 select public.record_usage(:'reply_op','monitor-response-reply',:'price',100,0,20);
 select public.finish_message_assessment(:'reply_job',jsonb_build_object('isRequest',true,'verdict','potential_conflict','summary','Email remains excluded.','issues',jsonb_build_array(jsonb_build_object('messageQuote','scheduled email reports','termRef','contract:'||:'v','termQuote','Scheduled emails are excluded.','explanation','This is excluded from the accepted work.'))));
@@ -84,6 +88,7 @@ select set_config('request.jwt.claim.sub','95000000-0000-4000-8000-000000000002'
 select public.post_discussion_message(:'e','shared','Please add email reports after all.') as stale_source \gset
 select id as stale_job from public.message_assessments where message_id=:'stale_source' \gset
 reset role;
+update public.message_assessments set review_version=0;
 select public.claim_message_assessment(:'stale_job',:'price',1000000) as stale_op \gset
 set role authenticated;
 select set_config('request.jwt.claim.sub','95000000-0000-4000-8000-000000000001',false);
@@ -104,6 +109,7 @@ select set_config('request.jwt.claim.sub','95000000-0000-4000-8000-000000000001'
 select public.post_discussion_message(:'e','shared','Thanks for explaining.') as clear_source \gset
 select id as clear_job from public.message_assessments where message_id=:'clear_source' \gset
 reset role;
+update public.message_assessments set review_version=0;
 select public.claim_message_assessment(:'clear_job',:'price',1000000) as clear_op \gset
 select public.record_usage(:'clear_op','monitor-response-clear',:'price',30,0,10);
 select public.finish_message_assessment(:'clear_job','{"isRequest":false,"verdict":"no_issue","summary":"No request identified.","issues":[]}');
@@ -114,6 +120,7 @@ select set_config('request.jwt.claim.sub','95000000-0000-4000-8000-000000000001'
 select public.post_discussion_message(:'e','shared','Could we discuss another idea?') as failed_source \gset
 select id as failed_job from public.message_assessments where message_id=:'failed_source' \gset
 reset role;
+update public.message_assessments set review_version=0;
 select public.claim_message_assessment(:'failed_job',:'price',1000000) as failed_op \gset
 select public.record_usage(:'failed_op','monitor-response-failed',:'price',30,0,10);
 select public.fail_message_assessment(:'failed_job','internal_error');
@@ -137,6 +144,7 @@ do $$declare a uuid;n bigint;begin
  select available_nano into n from public.agent_accounts where id=a;
  end loop;
 end $$;
+update public.message_assessments set review_version=0;
 select public.claim_message_assessment(:'exhausted_job',:'price',1000000);
 do $$begin
  if not exists(select 1 from public.message_assessments where id=current_setting('test.monitor_exhausted')::uuid and status='skipped' and reason='credits_unavailable' and operation_id is null) then raise exception 'Exhausted shared balance did not pause check';end if;

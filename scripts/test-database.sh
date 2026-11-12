@@ -31,6 +31,8 @@ psql -v ON_ERROR_STOP=1 -f tests/individual-milestones.sql >/dev/null
 psql -v ON_ERROR_STOP=1 -f tests/payment-ledger.sql >/dev/null
 psql -v ON_ERROR_STOP=1 -f tests/payment-cancellation.sql >/dev/null
 psql -v ON_ERROR_STOP=1 -f tests/contracts-monitor.sql >/dev/null
+psql -v ON_ERROR_STOP=1 -f tests/milestone-file-context.sql >/dev/null
+psql -v ON_ERROR_STOP=1 -f tests/conversation-reviews.sql >/dev/null
 psql -v ON_ERROR_STOP=1 -f tests/delivery-upload.sql >/dev/null
 python3 tests/concurrency.py
 # Apply the new migration over real multi-task legacy records in a separate

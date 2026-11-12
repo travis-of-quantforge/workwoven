@@ -1,3 +1,4 @@
+import { ConversationFindings } from "@/components/conversation-findings";
 import { z } from "zod";
 import { after } from "next/server";
 import { ContractView } from "@/components/contract-view";
@@ -373,6 +374,7 @@ export default async function Workspace({
                 )}
               </div>
               <aside className="stack content-start">
+                {visibility === "shared" && <ConversationFindings db={db} id={id} />}
                 {visibility === "shared" && <ActiveMilestonePreview db={db} id={id} status={project.status} />}
                 {visibility === "shared" && <MilestoneProposal
                   key={id}

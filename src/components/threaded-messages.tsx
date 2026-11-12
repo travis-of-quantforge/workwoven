@@ -8,7 +8,7 @@ type MessageAssessment = {
   notice_message_id: string | null;
   status: string;
   reason: string | null;
-  result: Assessment | null;
+  result: (Assessment & { review?: unknown }) | null;
 };
 type Message = {
   id: string;
@@ -90,7 +90,7 @@ export function ThreadedMessages({
           <EvidenceLinkHelp />
           </span>
         </div>
-        {notice?.result ? (
+        {notice?.result && !notice.result.review ? (
           <div className="ai-text rounded-lg border border-mint bg-mint/40 p-4">
             <h3 className="font-semibold">Potential scope or contract issue</h3>
             <p className="mt-2">{notice.result.summary}</p>
@@ -144,10 +144,11 @@ export function ThreadedMessages({
             {m.body}
           </p>
         )}
+        {notice?.result?.review != null && <Link className="underline text-xs ai-text" href="#conversation-checks">View evidence and current issue status</Link>}
         {assessment && (
           <details className="mt-2 text-xs muted">
             <summary className="cursor-pointer">
-              Scope check ·{" "}
+              Conversation check ·{" "}
               {assessment.status === "checked"
                 ? assessment.result?.isRequest
                   ? "assessed"
